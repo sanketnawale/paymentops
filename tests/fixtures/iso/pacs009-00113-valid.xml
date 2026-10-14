@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Document xmlns="urn:iso:std:iso:20022:tech:xsd:pacs.009.001.13">
+  <FICdtTrf>
+    <GrpHdr>
+      <MsgId>PACS009-2026-0001</MsgId>
+      <CreDtTm>2026-01-11T10:00:00+00:00</CreDtTm>
+      <NbOfTxs>1</NbOfTxs>
+      <SttlmInf>
+        <SttlmMtd>INDA</SttlmMtd>
+      </SttlmInf>
+    </GrpHdr>
+    <CdtTrfTxInf>
+      <PmtId>
+        <InstrId>FIINSTR-0001</InstrId>
+        <EndToEndId>FIE2E-0001</EndToEndId>
+        <TxId>FITX-0001</TxId>
+      </PmtId>
+      <Amt>
+        <InstdAmt Ccy="EUR">12500.00</InstdAmt>
+      </Amt>
+      <DbtrAgt>
+        <FinInstnId><BICFI>ITBIC12345</BICFI></FinInstnId>
+      </DbtrAgt>
+      <Dbtr>
+        <FinInstnId><BICFI>ITBIC12345</BICFI></FinInstnId>
+      </Dbtr>
+      <DbtrAcct>
+        <Id><IBAN>IT60X0542811101000000123456</IBAN></Id>
+      </DbtrAcct>
+      <CdtrAgt>
+        <FinInstnId><BICFI>DEBIC54321</BICFI></FinInstnId>
+      </CdtrAgt>
+      <Cdtr>
+        <FinInstnId><BICFI>DEBIC54321</BICFI></FinInstnId>
+      </Cdtr>
+      <CdtrAcct>
+        <Id><IBAN>DE89370400440532013000</IBAN></Id>
+      </CdtrAcct>
+      <RmtInf>
+        <Ustrd>FI settlement for INV-92881</Ustrd>
+      </RmtInf>
+    </CdtTrfTxInf>
+  </FICdtTrf>
+</Document>

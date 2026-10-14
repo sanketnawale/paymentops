@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Document xmlns="urn:iso:std:iso:20022:tech:xsd:pacs.002.001.16">
+  <FIToFIPmtStsRpt>
+    <GrpHdr>
+      <MsgId>STS-2026-0003</MsgId>
+      <CreDtTm>2026-01-13T08:00:00+00:00</CreDtTm>
+    </GrpHdr>
+    <OrgnlGrpInfAndSts>
+      <OrgnlMsgId>UNKNOWN-PARENT-999</OrgnlMsgId>
+      <OrgnlMsgNmId>pacs.008.001.08</OrgnlMsgNmId>
+      <GrpSts>ACCP</GrpSts>
+    </OrgnlGrpInfAndSts>
+    <TxInfAndSts>
+      <OrgnlInstrId>INSTR-XYZ</OrgnlInstrId>
+      <OrgnlEndToEndId>E2E-XYZ</OrgnlEndToEndId>
+      <OrgnlTxId>TX-XYZ</OrgnlTxId>
+      <TxSts>ACCP</TxSts>
+    </TxInfAndSts>
+  </FIToFIPmtStsRpt>
+</Document>

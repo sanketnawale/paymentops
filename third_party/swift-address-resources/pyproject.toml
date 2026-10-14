@@ -1,0 +1,23 @@
+# this toml file is used to create a data package containing the model
+# and some other location files
+#
+[build-system]
+requires = ["setuptools>=53.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "swift_address_structuring_resources"
+version = "1.0.2"
+description = "Resource files for ISO Address Structuring Package"
+license-files = ["LICENSE.txt", "LICENSE.pdf", "NOTICES.txt"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+exclude = ["data_generators", "kwm", "templates", "templates_examples"]
+
+[tool.setuptools.package-data]
+input = ["addresses_gauntlet.csv", "addresses_wikipedia.csv", "sample.txt"]
+models = ["CRF_with_MLP_EPOCH_1.safetensors", "CRF_with_MLP_EPOCH_1.config.json"]
+misc = ["country_city_same_name.json", "country_groupings_with_iso_code.json"]
+post_codes = ["**/.keep"]
+raw = ["**/.keep"]

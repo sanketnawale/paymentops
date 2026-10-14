@@ -1,0 +1,8 @@
+# Build context = apps/web.
+node_modules
+.next
+out
+.git
+.env
+.env.*
+*.log

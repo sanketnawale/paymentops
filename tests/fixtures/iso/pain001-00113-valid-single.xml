@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Document xmlns="urn:iso:std:iso:20022:tech:xsd:pain.001.001.13">
+  <CstmrCdtTrfInitn>
+    <GrpHdr>
+      <MsgId>PAIN-2026-0001</MsgId>
+      <CreDtTm>2026-01-10T09:30:00+00:00</CreDtTm>
+      <NbOfTxs>1</NbOfTxs>
+      <InitgPty>
+        <Nm>Acme Corporation</Nm>
+      </InitgPty>
+    </GrpHdr>
+    <PmtInf>
+      <PmtInfId>PMTINF-0001</PmtInfId>
+      <PmtMtd>TRF</PmtMtd>
+      <BtchBookg>false</BtchBookg>
+      <NbOfTxs>1</NbOfTxs>
+      <ReqdExctnDt>2026-01-12</ReqdExctnDt>
+      <Dbtr>
+        <Nm>Acme Corporation</Nm>
+        <PstlAdr>
+          <TwnNm>Milano</TwnNm>
+          <Ctry>IT</Ctry>
+        </PstlAdr>
+      </Dbtr>
+      <DbtrAcct>
+        <Id><IBAN>IT60X0542811101000000123456</IBAN></Id>
+      </DbtrAcct>
+      <DbtrAgt>
+        <FinInstnId><BICFI>ITBIC12345</BICFI></FinInstnId>
+      </DbtrAgt>
+      <CdtTrfTxInf>
+        <PmtId>
+          <InstrId>INSTR-0001</InstrId>
+          <EndToEndId>E2E-0001</EndToEndId>
+          <TxId>TX-0001</TxId>
+        </PmtId>
+        <Amt>
+          <InstdAmt Ccy="EUR">12500.00</InstdAmt>
+        </Amt>
+        <CdtrAgt>
+          <FinInstnId><BICFI>DEBIC54321</BICFI></FinInstnId>
+        </CdtrAgt>
+        <Cdtr>
+          <Nm>Acme Industria SPA</Nm>
+          <PstlAdr>
+            <TwnNm>Berlin</TwnNm>
+            <Ctry>DE</Ctry>
+          </PstlAdr>
+        </Cdtr>
+        <CdtrAcct>
+          <Id><IBAN>DE89370400440532013000</IBAN></Id>
+        </CdtrAcct>
+        <RmtInf>
+          <Ustrd>Invoice INV-92881</Ustrd>
+        </RmtInf>
+      </CdtTrfTxInf>
+    </PmtInf>
+  </CstmrCdtTrfInitn>
+</Document>

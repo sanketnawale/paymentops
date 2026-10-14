@@ -1,0 +1,20 @@
+# Build context = repo root (used by api + worker images).
+.git
+.gitignore
+.venv
+venv
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache
+**/.coverage
+**/htmlcov
+apps/web/node_modules
+apps/web/.next
+apps/web/out
+**/.env
+**/.env.*
+!**/.env.example
+*.log
+.docker

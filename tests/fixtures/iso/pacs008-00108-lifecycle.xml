@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Document xmlns="urn:iso:std:iso:20022:tech:xsd:pacs.008.001.08">
+  <FIToFICstmrCdtTrf>
+    <GrpHdr>
+      <MsgId>PACS008-2026-0001</MsgId>
+      <CreDtTm>2026-01-11T09:00:00+00:00</CreDtTm>
+      <NbOfTxs>1</NbOfTxs>
+      <SttlmInf><SttlmMtd>INDA</SttlmMtd></SttlmInf>
+    </GrpHdr>
+    <CdtTrfTxInf>
+      <PmtId>
+        <InstrId>INSTR-0001</InstrId>
+        <EndToEndId>E2E-0001</EndToEndId>
+        <TxId>TX-0001</TxId>
+      </PmtId>
+      <Amt>
+        <InstdAmt Ccy="EUR">12500.00</InstdAmt>
+      </Amt>
+      <Dbtr>
+        <Nm>Acme Corporation</Nm>
+        <PstlAdr><TwnNm>Milano</TwnNm><Ctry>IT</Ctry></PstlAdr>
+      </Dbtr>
+      <DbtrAcct>
+        <Id><IBAN>IT60X0542811101000000123456</IBAN></Id>
+      </DbtrAcct>
+      <DbtrAgt>
+        <FinInstnId><BICFI>ITBIC12345</BICFI></FinInstnId>
+      </DbtrAgt>
+      <CdtrAgt>
+        <FinInstnId><BICFI>DEBIC54321</BICFI></FinInstnId>
+      </CdtrAgt>
+      <Cdtr>
+        <Nm>Acme Industria SPA</Nm>
+        <PstlAdr><TwnNm>Berlin</TwnNm><Ctry>DE</Ctry></PstlAdr>
+      </Cdtr>
+      <CdtrAcct>
+        <Id><IBAN>DE89370400440532013000</IBAN></Id>
+      </CdtrAcct>
+      <RmtInf>
+        <Ustrd>Invoice INV-92881</Ustrd>
+      </RmtInf>
+    </CdtTrfTxInf>
+  </FIToFICstmrCdtTrf>
+</Document>

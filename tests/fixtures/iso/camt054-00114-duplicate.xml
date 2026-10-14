@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Document xmlns="urn:iso:std:iso:20022:tech:xsd:camt.054.001.14">
+  <BkToCstmrDbtCdtNtfctn>
+    <GrpHdr>
+      <MsgId>CAMT054-2026-0002</MsgId>
+      <CreDtTm>2026-01-12T10:00:00+00:00</CreDtTm>
+    </GrpHdr>
+    <Ntfctn>
+      <Id>NTFCTN-0002</Id>
+      <ElctrncSeqNb>1</ElctrncSeqNb>
+      <Acct>
+        <Id><IBAN>IT60X0542811101000000123456</IBAN></Id>
+        <Ccy>EUR</Ccy>
+        <Svcr><FinInstnId><BICFI>ITBIC12345</BICFI></FinInstnId></Svcr>
+      </Acct>
+      <Ntry>
+        <NtryRef>NTRY-0001</NtryRef>
+        <Amt Ccy="EUR">12500.00</Amt>
+        <CdtDbtInd>DBIT</CdtDbtInd>
+        <Sts><Cd>BOOK</Cd></Sts>
+        <BookgDt><Dt>2026-01-12</Dt></BookgDt>
+        <ValDt><Dt>2026-01-12</Dt></ValDt>
+        <AcctSvcrRef>ASR-0001</AcctSvcrRef>
+        <BkTxCd>
+          <Domn><Cd>PMNT</Cd><Fmly><Cd>ICDT</Cd><SubFmlyCd>ESCT</SubFmlyCd></Fmly></Domn>
+        </BkTxCd>
+        <NtryDtls>
+          <TxDtls>
+            <Refs>
+              <InstrId>INSTR-0001</InstrId>
+              <EndToEndId>E2E-0001</EndToEndId>
+              <TxId>TX-0001</TxId>
+            </Refs>
+            <Amt Ccy="EUR">12500.00</Amt>
+            <RltdPties>
+              <Dbtr><Nm>Acme Corporation</Nm></Dbtr>
+              <Cdtr><Nm>Acme Industria SPA</Nm></Cdtr>
+            </RltdPties>
+            <RltdAgts>
+              <DbtrAgt><FinInstnId><BICFI>ITBIC12345</BICFI></FinInstnId></DbtrAgt>
+              <CdtrAgt><FinInstnId><BICFI>DEBIC54321</BICFI></FinInstnId></CdtrAgt>
+            </RltdAgts>
+            <RmtInf><Ustrd>Invoice INV-92881</Ustrd></RmtInf>
+          </TxDtls>
+        </NtryDtls>
+      </Ntry>
+    </Ntfctn>
+  </BkToCstmrDbtCdtNtfctn>
+</Document>

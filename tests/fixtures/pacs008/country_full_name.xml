@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Document xmlns="urn:iso:std:iso:20022:tech:xsd:pacs.008.001.08">
+  <FIToFICstmrCdtTrf>
+    <GrpHdr>
+      <MsgId>MSGID-COUNTRY-FULLNAME</MsgId>
+      <CreDtTm>2026-09-04T10:00:00Z</CreDtTm>
+      <NbOfTxs>1</NbOfTxs>
+      <SttlmInf><SttlmMtd>CLRG</SttlmMtd></SttlmInf>
+    </GrpHdr>
+    <CdtTrfTxInf>
+      <PmtId><InstrId>INST004</InstrId><EndToEndId>E2E004</EndToEndId><TxId>TXID004</TxId></PmtId>
+      <Amt><InstdAmt Ccy="EUR">999.00</InstdAmt></Amt>
+      <Dbtr>
+        <Nm>Acme GmbH</Nm>
+        <PstlAdr>
+          <StrtNm>Main Street</StrtNm>
+          <BldgNb>10</BldgNb>
+          <PstCd>20121</PstCd>
+          <TwnNm>Milano</TwnNm>
+          <Ctry>Italy</Ctry>
+        </PstlAdr>
+      </Dbtr>
+      <DbtrAcct><Id><IBAN>DE89370400440532013000</IBAN></Id></DbtrAcct>
+      <DbtrAgt><FinInstnId><BICFI>DEUTDEFF</BICFI></FinInstnId></DbtrAgt>
+      <CdtrAgt><FinInstnId><BICFI>UNCRITMM</BICFI></FinInstnId></CdtrAgt>
+      <Cdtr><Nm>Rossi S.r.l.</Nm><PstlAdr><Ctry>IT</Ctry></PstlAdr></Cdtr>
+      <CdtrAcct><Id><IBAN>IT60X0542811101000000123456</IBAN></Id></CdtrAcct>
+    </CdtTrfTxInf>
+  </FIToFICstmrCdtTrf>
+</Document>

@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Document xmlns="urn:iso:std:iso:20022:tech:xsd:pacs.002.001.16">
+  <FIToFIPmtStsRpt>
+    <GrpHdr>
+      <MsgId>STS-2026-0001</MsgId>
+      <CreDtTm>2026-01-12T08:00:00+00:00</CreDtTm>
+    </GrpHdr>
+    <OrgnlGrpInfAndSts>
+      <OrgnlMsgId>PAIN-2026-0001</OrgnlMsgId>
+      <OrgnlMsgNmId>pain.001.001.13</OrgnlMsgNmId>
+      <GrpSts>ACCP</GrpSts>
+    </OrgnlGrpInfAndSts>
+    <TxInfAndSts>
+      <OrgnlInstrId>INSTR-0001</OrgnlInstrId>
+      <OrgnlEndToEndId>E2E-0001</OrgnlEndToEndId>
+      <OrgnlTxId>TX-0001</OrgnlTxId>
+      <TxSts>ACCP</TxSts>
+      <OrgnlTxRef>
+        <PmtId>
+          <InstrId>INSTR-0001</InstrId>
+          <EndToEndId>E2E-0001</EndToEndId>
+          <TxId>TX-0001</TxId>
+        </PmtId>
+        <Amt>
+          <InstdAmt Ccy="EUR">12500.00</InstdAmt>
+        </Amt>
+      </OrgnlTxRef>
+    </TxInfAndSts>
+  </FIToFIPmtStsRpt>
+</Document>

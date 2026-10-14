@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Document xmlns="urn:iso:std:iso:20022:tech:xsd:pacs.002.001.16">
+  <FIToFIPmtStsRpt>
+    <GrpHdr>
+      <MsgId>STS-2026-0002</MsgId>
+      <CreDtTm>2026-01-12T09:00:00+00:00</CreDtTm>
+    </GrpHdr>
+    <OrgnlGrpInfAndSts>
+      <OrgnlMsgId>PACS008-2026-0001</OrgnlMsgId>
+      <OrgnlMsgNmId>pacs.008.001.08</OrgnlMsgNmId>
+      <GrpSts>RJCT</GrpSts>
+    </OrgnlGrpInfAndSts>
+    <TxInfAndSts>
+      <OrgnlInstrId>INSTR-0001</OrgnlInstrId>
+      <OrgnlEndToEndId>E2E-0001</OrgnlEndToEndId>
+      <OrgnlTxId>TX-0001</OrgnlTxId>
+      <TxSts>RJCT</TxSts>
+      <StsRsnInf>
+        <Rsn><Cd>AC04</Cd></Rsn>
+        <AddtlInf>Beneficiary account closed</AddtlInf>
+      </StsRsnInf>
+    </TxInfAndSts>
+  </FIToFIPmtStsRpt>
+</Document>

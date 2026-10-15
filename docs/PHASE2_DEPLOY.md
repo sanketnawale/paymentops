@@ -1,193 +1,144 @@
 # Phase 2A — Isolated PaymentOps hackathon deployment (Hetzner k3s)
 
-This document covers deploying the **paymentops-amd** hackathon application into the Hetzner
-`hetzner-dr` k3s cluster under the isolated namespace **`paymentops-hackathon`**, and its
-rollback. It does not touch the business application or any shared infrastructure.
+Deployment of the **paymentops-amd** application (Evolus/AMD investigator) into the Hetzner
+`hetzner-dr` k3s cluster under the isolated namespace **`paymentops-hackathon`**. Nothing is
+shared with the business application or other namespaces.
 
-> **Status: prepared and validated, but NOT yet deployed.** Two external dependencies block
-> the image supply (see [Blockers](#blockers)). Manifests render cleanly offline; both images
-> build clean for `linux/arm64`.
+> **Status: DEPLOYED and verified internally.** Images are published to GHCR (arm64), Flux has
+> reconciled, migrations + seed are complete, and the validation tool returns real deterministic
+> findings. The **public domain route is intentionally disabled** (added later).
+>
+> - App commit: `ef7f8d626717ae41a3273cee0776274da6cd9769`
+> - Infra commits: `cd42c8c` (initial), `46d9fbc` (hardening) — Flux revision `main@46d9fbc…`
+> - Images: `ghcr.io/sanketnawale/paymentops-hackathon-api:ef7f8d6…` and `…-web:ef7f8d6…`
 
 ## 1. Cluster facts (observed, `--kubeconfig $HOME\.kube\hetzner-dr.yaml`)
 
 | Item | Value |
 | --- | --- |
-| Context | `hetzner-dr` |
-| API server | `https://65.21.241.211:6443` |
+| Context / API | `hetzner-dr` / `https://65.21.241.211:6443` |
 | Node | `hetzner-dr-01` (control-plane, k3s `v1.36.3+k3s1`, **arm64**, Ubuntu 24.04) |
-| Capacity | 2 vCPU, ~3.8 GiB memory; **~85% memory already in use** |
+| Capacity | 2 vCPU, ~3.8 GiB memory (~85% already used) |
 | StorageClass | `local-path` (default) |
 | Ingress | Envoy Gateway `public-gateway` (ns `gateway-infra`), HTTP listener only |
-| External/TLS | **Cloudflare Tunnel** (`cloudflare/cloudflared`) + Cloudflare-managed TLS/DNS |
-| GitOps | Flux (`clusters/hetzner-dr`, source `ssh://git@github.com/sanketnawale/loudnova-infra` @ `main`) |
-| Registry | `ghcr.io` (existing apps use `ghcr.io/sanketnawale/*` and `ghcr.io/cloodnova/*`) |
+| External/TLS | **Cloudflare Tunnel** + Cloudflare-managed TLS/DNS |
+| GitOps | Flux (`clusters/hetzner-dr`), source `ssh://git@github.com/sanketnawale/loudnova-infra` @ `main` |
+| Registry | `ghcr.io` (pulled with the existing `ghcr-pull` secret) |
 
-**Finding:** the business PaymentOps application is **not** deployed on `hetzner-dr`. The only
-PaymentOps workload here is the marketing site `paymentops-site/paymentops-website`. The
-business API/web/DB manifests live under `clusters/loudnova/apps/paymentops` (a different
-cluster). We therefore mirror those conventions without touching them.
+**Finding:** the business PaymentOps application is **not** on `hetzner-dr`; the only PaymentOps
+workload there is the marketing site `paymentops-site/paymentops-website` (unchanged, 1/1). The
+business API/web/DB manifests live under `clusters/loudnova/apps/paymentops` (another cluster).
 
-## 2. Architecture deployed
+## 2. What is deployed
 
-Namespace `paymentops-hackathon` (label `platform.cloudnova.tech/public-routes: "true"`):
+Namespace `paymentops-hackathon`:
 
-| Component | Resource | Notes |
+| Component | Resource | Status |
 | --- | --- | --- |
-| API | Deployment + Service `paymentops-hackathon-api` (:8000) | FastAPI; `/health`, `/ready` |
-| Web | Deployment + Service `paymentops-hackathon-web` (:80 → 3000) | Next.js standalone; `/api/health` |
-| PostgreSQL | Deployment + Service + PVC (2 Gi, `local-path`) | Isolated DB `paymentops_hackathon` |
-| Migrations | Job `paymentops-hackathon-migrate` | `alembic upgrade head` → `0011_investigations` |
-| Demo seed | Job `paymentops-hackathon-seed` | Org + operator client + admin user (idempotent) |
-| Governance | ResourceQuota, LimitRange, NetworkPolicy | deny-all ingress + explicit allows |
+| API | Deployment + Service `paymentops-hackathon-api` (:8000) | 1/1 |
+| Web | Deployment + Service `paymentops-hackathon-web` (:80→3000) | 1/1 |
+| PostgreSQL | Deployment + Service + PVC `…postgres-pvc` (2 Gi, `local-path`, Bound) | 1/1 |
+| Migrations | Job `paymentops-hackathon-migrate` | Complete (through `0011_investigations`) |
+| Demo seed | Job `paymentops-hackathon-seed` | Complete (org + operator client + admin) |
+| Governance | ResourceQuota, LimitRange, NetworkPolicy | Applied |
 
-**Intentionally not deployed:** worker, Redis, and the optional `address-structuring` service.
-The investigation demo runs synchronously in the API; the deterministic address provider
-(`CloudNovaAddressProvider`) is used, so those components are unnecessary. `READY_CHECKS=database`.
+Not deployed (not required for the investigation demo): worker, Redis, address-structuring.
+`READY_CHECKS=database`; deterministic `CloudNovaAddressProvider`.
 
-Resources are sized for the tight node (requests: API 50m/128Mi, Web 30m/96Mi, Postgres
-50m/128Mi; single replicas; `Recreate` strategy to avoid surge pods).
+Resource usage after deploy: `requests.cpu 130m/600m`, `requests.memory 352Mi/900Mi`,
+`pods 3/6`.
 
-## 3. Files
+## 3. Images (published)
 
-### `paymentops-amd` (application)
-- `apps/api/scripts/seed_hackathon.py` — idempotent demo org + operator client + admin seed.
-- `apps/api/paymentops_api/services/investigation_service.py` — added `start_workflow` flag
-  (prepare-only investigations that never start the Evolus workflow).
-- `apps/api/paymentops_api/routers/investigations.py` — `POST /api/v1/investigations` accepts
-  `{"demo_case_key": "...", "start_workflow": false}`.
-- `apps/web/lib/api.ts`, `apps/web/app/investigations/[id]/page.tsx` — `start_workflow` + the
-  `PREPARED` state.
-- Tests: `tests/security/test_validation_tool.py` (`test_prepare_only_does_not_start_workflow`).
+Published by GitHub Actions (`.github/workflows/ci.yml`) on `ubuntu-latest` using
+`docker/setup-qemu-action` + `docker/setup-buildx-action`, `platforms: linux/arm64`, logged in
+to GHCR with `GITHUB_TOKEN` (`contents: read`, `packages: write`), tagged with the full commit
+SHA (immutable, no `latest`):
 
-### `homeserver` (GitOps) — `clusters/hetzner-dr`
-- `apps/paymentops-hackathon/base/*` and `apps/paymentops-hackathon/overlays/dr/*`.
-- `flux-system/paymentops-hackathon.yaml` (+ entry in `flux-system/kustomization.yaml`).
+- `ghcr.io/sanketnawale/paymentops-hackathon-api:ef7f8d626717ae41a3273cee0776274da6cd9769`
+- `ghcr.io/sanketnawale/paymentops-hackathon-web:ef7f8d626717ae41a3273cee0776274da6cd9769`
 
-## 4. Images (immutable tags)
+Run `38628478732` — all jobs green (Backend, Frontend, Security, Build & publish arm64).
 
-Names: `ghcr.io/sanketnawale/paymentops-hackathon-api` and `…-web`. The overlay pins tags via
-`images: newTag` in `overlays/dr/kustomization.yaml` (placeholder `sha-pending0001`).
+## 4. Files
 
-Build (arm64 required — the node is arm64):
+`paymentops-amd` (application): `apps/api/scripts/seed_hackathon.py`; `start_workflow`
+prepare-only flag in `services/investigation_service.py` + `routers/investigations.py`;
+`apps/web/lib/api.ts`, `apps/web/app/investigations/[id]/page.tsx`; tests; `.github/workflows/ci.yml`
+(arm64 publish); docs.
 
-```powershell
-docker buildx build --platform linux/arm64 --push `
-  -f apps/api/Dockerfile -t ghcr.io/sanketnawale/paymentops-hackathon-api:<TAG> .
-docker buildx build --platform linux/arm64 --push `
-  -f apps/web/Dockerfile -t ghcr.io/sanketnawale/paymentops-hackathon-web:<TAG> apps/web
-```
+`homeserver` (`clusters/hetzner-dr`): `apps/paymentops-hackathon/{base,overlays/dr}` +
+`flux-system/paymentops-hackathon.yaml` (+ reference in `flux-system/kustomization.yaml`).
 
-Both images were verified to build clean for `linux/arm64` locally (build-cache only; not
-pushed). Replace `<TAG>` in the overlay with the published tag/digest before applying.
+## 5. Secrets (out-of-band; never committed)
 
-## 5. Secrets (created out-of-band; NEVER committed)
+- `paymentops-hackathon-secrets` — `DATABASE_PASSWORD`, `EVOLUS_TOOL_API_KEY`, `EVOLUS_API_KEY`
+- `paymentops-hackathon-web-operator` — `client-id`, `client-secret`
+- `paymentops-hackathon-bootstrap` — `admin-email`, `admin-password`
+- `ghcr-pull` — copied from `cloudnova-web`
 
-Generated/entered privately. Names referenced by the manifests:
+Generated values were written only to the gitignored local `.env`. `EVOLUS_APPLICATION_ID` /
+`EVOLUS_WORKFLOW_ID` / `EVOLUS_DEMO_ORG_PUBLIC_ID` are non-secret ConfigMap values.
 
-```powershell
-# DB password + Evolus secrets
-kubectl --kubeconfig $HOME\.kube\hetzner-dr.yaml -n paymentops-hackathon create secret generic paymentops-hackathon-secrets `
-  --from-literal=DATABASE_PASSWORD='<enter privately>' `
-  --from-literal=EVOLUS_API_KEY='<enter privately>' `
-  --from-literal=EVOLUS_TOOL_API_KEY='<enter privately>'      # generated strong random
+## 6. Verification (observed)
 
-# Operator client (must match the seed job's PAYMENTOPS_OPERATOR_CLIENT_ID/SECRET)
-kubectl --kubeconfig $HOME\.kube\hetzner-dr.yaml -n paymentops-hackathon create secret generic paymentops-hackathon-web-operator `
-  --from-literal=client-id='cn_<generated>' `
-  --from-literal=client-secret='<enter privately>'
+| Check | Result |
+| --- | --- |
+| Flux `paymentops-hackathon` | `Ready=True` @ `main@46d9fbc…` |
+| Pods | api/web/postgres 1/1 Running |
+| Migration Job | Complete (0011) |
+| Seed Job | Complete; org `cloudnova-hackathon-demo` + operator client + admin |
+| `GET /health` (API) | 200 |
+| `GET /ready` (API) | `{"status":"ready","checks":[{"name":"database","ok":true}]}` |
+| `GET /api/health` (web, 127.0.0.1) | `{"status":"ok"}` |
+| Tool, correct `X-Tool-Key` | 200 — `case_ref=inv-17ae8a6a2937`, `validation.status=valid`, findings `ADR-001`, `input_unchanged=true` |
+| Tool, wrong/missing key | 401 |
+| Business app `paymentops-site` | 1/1 (unchanged) |
+| Domain route | none (`httproute.yaml` intentionally not enabled) |
+| NetworkPolicy | default-deny ingress; only web(gateway+ns), api(ns), postgres(api/migrate/seed) allowed. **Egress unrestricted** → DNS, in-namespace DB, and outbound Evolus API are reachable; no business access. |
 
-# Admin bootstrap (seed job)
-kubectl --kubeconfig $HOME\.kube\hetzner-dr.yaml -n paymentops-hackathon create secret generic paymentops-hackathon-bootstrap `
-  --from-literal=admin-email='<enter privately>' `
-  --from-literal=admin-password='<enter privately>'
+**Real test investigation (deployed database):** `inv-17ae8a6a2937`
+(`demo_case_key=pacs008-missing-town`, `status=PREPARED`, 2× `ADR-001`, `input_hash=a78e9098…`).
 
-# Image pull secret (copy the existing cluster credential; no values printed)
-kubectl --kubeconfig $HOME\.kube\hetzner-dr.yaml get secret ghcr-pull -n cloudnova-web -o json `
-  | %{ $s = $_ | ConvertFrom-Json; $s.metadata.namespace='paymentops-hackathon'; $s.metadata.name='ghcr-pull';
-       $s.metadata.PSObject.Properties.Remove('resourceVersion'); $s.metadata.PSObject.Properties.Remove('uid');
-       $s.metadata.PSObject.Properties.Remove('creationTimestamp');
-       $s | ConvertTo-Json -Depth 20 | kubectl --kubeconfig $HOME\.kube\hetzner-dr.yaml apply -f - }
-```
+## 7. Tool contract (Evolus WebAPI)
 
-`EVOLUS_DEMO_ORG_PUBLIC_ID` is `cloudnova-hackathon-demo` (non-secret, in the ConfigMap).
-
-## 6. Deploy
-
-The established method is **Flux GitOps**; Flux reconciles from GitHub, so it requires a
-commit + push of `homeserver` (not done here — pending instruction). Two options:
-
-**A. GitOps (established method).** Commit + push the `homeserver` changes; Flux adds the
-`paymentops-hackathon` Kustomization (already referenced) and applies the overlay. Then run the
-seed job (it is part of the overlay). Verify:
-
-```powershell
-kubectl --kubeconfig $HOME\.kube\hetzner-dr.yaml -n flux-system get kustomization paymentops-hackathon
-kubectl --kubeconfig $HOME\.kube\hetzner-dr.yaml -n paymentops-hackathon get pods,jobs
-```
-
-**B. Direct verify (interim, isolated).** Apply the rendered overlay to the namespace only:
-
-```powershell
-kubectl --kubeconfig $HOME\.kube\hetzner-dr.yaml apply -k C:\Users\sanke\Documents\homeserver\clusters\hetzner-dr\apps\paymentops-hackathon\overlays\dr
-```
-
-Do not mix methods once Flux owns the app (avoid conflicting ownership). Prefer **A**.
-
-## 7. Internal verification (before any domain)
-
-```powershell
-kubectl --kubeconfig $HOME\.kube\hetzner-dr.yaml -n paymentops-hackathon port-forward svc/paymentops-hackathon-api 18000:8000
-curl.exe http://localhost:18000/health
-curl.exe http://localhost:18000/ready
-```
-
-## 8. Domain (Step 6, after internal checks pass)
-
-The route file `overlays/dr/httproute.yaml` is prepared but **not** yet listed in the overlay.
-Once the hostname is confirmed:
-1. Add `- httproute.yaml` to `overlays/dr/kustomization.yaml`.
-2. Set the hostname in `httproute.yaml` and in the ConfigMap (`CORS_ALLOWED_ORIGINS`,
-   `ALLOWED_HOSTS`).
-3. Add a matching **Cloudflare Tunnel** ingress rule + DNS record (managed remotely in
-   Cloudflare Zero Trust) pointing the hostname at the Envoy `public-gateway`. TLS is
-   terminated at Cloudflare; there is no cert-manager issuer to invent.
-
-Expected DNS (Cloudflare-proxied) for the proposed hostname:
-`paymentops-hackathon.cloudnova.tech` → Cloudflare Tunnel for this cluster.
-
-## 9. Tool contract (Evolus WebAPI)
-
-- URL: `https://<hostname>/api/v1/evolus/tools/validate-case`
-- Headers: `X-Tool-Key: <EVOLUS_TOOL_API_KEY>` (raw), `Content-Type: application/json`
+- Method/URL: `POST https://<hostname>/api/v1/evolus/tools/validate-case`
+- Header: `X-Tool-Key: <EVOLUS_TOOL_API_KEY>` (raw value)
+- Header: `Content-Type: application/json`
 - Body: `{"case_ref":"<investigation_id>"}`
+- Prepare-only creation (does not start the (unconnected) workflow):
+  `POST /api/v1/investigations` `{"demo_case_key":"pacs008-missing-town","start_workflow":false}`
 
-Create a real investigation (operator session via the app, or the operator API client), using
-prepare-only mode during smoke tests so the (not-yet-connected) Evolus workflow is not started:
-`POST /api/v1/investigations` with `{"demo_case_key":"pacs008-missing-town","start_workflow":false}`
-→ returns `investigation_id`; use that as `case_ref`.
+## 8. Domain (Step 6 — disabled)
 
-## 10. Rollback (hackathon only)
+`overlays/dr/httproute.yaml` is prepared but not listed in the overlay. To enable:
+add it to `overlays/dr/kustomization.yaml`, set the hostname (proposed
+`paymentops-hackathon.cloudnova.tech`) in the route and ConfigMap (`CORS_ALLOWED_ORIGINS`,
+`ALLOWED_HOSTS`), and add a matching **Cloudflare Tunnel** ingress rule + DNS record (remote).
+TLS terminates at Cloudflare; there is no cert-manager issuer.
+
+## 9. Rollback (hackathon only)
+
+Suspend/remove Flux reconciliation first, then remove resources:
 
 ```powershell
-# GitOps: remove the Kustomization + app dir in homeserver, commit/push; or:
-kubectl --kubeconfig $HOME\.kube\hetzner-dr.yaml delete -k C:\Users\sanke\Documents\homeserver\clusters\hetzner-dr\apps\paymentops-hackathon\overlays\dr
-
-# Full teardown (destroys ONLY hackathon data)
+kubectl --kubeconfig $HOME\.kube\hetzner-dr.yaml -n flux-system delete kustomization paymentops-hackathon
+kubectl --kubeconfig $HOME\.kube\hetzner-dr.yaml delete -k <homeserver>\clusters\hetzner-dr\apps\paymentops-hackathon\overlays\dr
+# Full teardown (destroys ONLY hackathon data):
 kubectl --kubeconfig $HOME\.kube\hetzner-dr.yaml delete namespace paymentops-hackathon
 ```
 
-Never touches `paymentops-site`, `paymentops` (loudnova), or shared infrastructure.
+Never affects `paymentops-site`, `clusters/loudnova`, or shared infrastructure.
 
-## Blockers
+## 10. Remaining blockers
 
-1. **Registry push denied.** The available `gh` token scopes are `gist, read:org, repo,
-   workflow` (no `write:packages`); `docker push ghcr.io/sanketnawale/...` returns
-   `permission_denied: The token provided does not match expected scopes`. No Docker Hub login
-   and no in-cluster registry exist.
-   → Ask: grant packages write (`gh auth refresh -h github.com -s write:packages`) or provide a
-   registry credential privately.
-2. **arm64 build image supply.** Images must be arm64. Local builds were enabled via
-   `tonistiigi/binfmt --install arm64` and both images build clean; the durable method is
-   GitHub Actions (arm/amd runners) pushing to GHCR with `GITHUB_TOKEN` — which requires
-   commit/push of the repo (not done).
-3. **Hostname** for Step 6 not yet confirmed (proposed `paymentops-hackathon.cloudnova.tech`).
+1. **`EVOLUS_API_KEY` not present in local `.env`.** The deployed ConfigMap has
+   `EVOLUS_ENABLED=true` but `evolus_configured` is false, so starting an agent workflow
+   reports "not configured". Add the key privately to `.env` and update the
+   `paymentops-hackathon-secrets` secret (`kubectl create secret … --dry-run=client -o yaml |
+   kubectl apply -f -`) to enable live agent runs. Prepare-only investigations and the
+   validation tool already work without it.
+2. **Domain not configured** (intentional). Needs the hostname + Cloudflare Tunnel ingress +
+   DNS.
+3. **Live Evolus/AMD investigation not yet exercised** — the WebAPI tool must be attached in
+   the Evolus workspace (see `docs/evolus/evolus-workspace-setup.md`) before a full run.

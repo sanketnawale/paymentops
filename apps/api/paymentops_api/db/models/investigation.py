@@ -11,7 +11,7 @@ import uuid
 from datetime import UTC, datetime
 
 from paymentops_api.db.models import Base
-from sqlalchemy import DateTime, ForeignKey, String
+from sqlalchemy import DateTime, ForeignKey, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -49,6 +49,11 @@ class Investigation(Base):
     # Parsed agent result: explanation, cited rules, missing evidence, next step (+ raw).
     agent_result: Mapped[dict[str, object] | None] = mapped_column(JSONB, nullable=True)
     agent_status: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    # Phase 2B: synthetic supporting record (evidence) and sandbox repair state.
+    supporting_record: Mapped[dict[str, object] | None] = mapped_column(JSONB, nullable=True)
+    repair: Mapped[dict[str, object] | None] = mapped_column(JSONB, nullable=True)
+    # The user-facing final answer, separated (narrowly) from any inline reasoning.
+    answer_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     error: Mapped[str | None] = mapped_column(String(512), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, nullable=False

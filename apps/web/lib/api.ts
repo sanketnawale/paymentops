@@ -808,6 +808,77 @@ export async function analyzePayment(
   return body as AnalyzeResponse;
 }
 
+export interface SupportingRecordEntry {
+  ref: string;
+  party: string;
+  field: string;
+  value: string;
+  note?: string;
+}
+
+export interface SupportingRecord {
+  record_id: string;
+  label: string;
+  source: string;
+  synthetic: boolean;
+  entries: SupportingRecordEntry[];
+  gaps: string[];
+  contradictions: string[];
+}
+
+export interface ProposedChange {
+  target: string;
+  value: string;
+  evidence_ref: string;
+}
+
+export interface ValidatedChange extends ProposedChange {
+  party?: string;
+  field?: string;
+  path?: string;
+  before?: string | null;
+  after?: string | null;
+  noop?: boolean;
+  reason?: string;
+}
+
+export interface RejectedChange {
+  target: string;
+  value: string;
+  evidence_ref?: string;
+  reason: string;
+}
+
+export interface RepairTest {
+  sandbox_id: string;
+  original_hash: string;
+  sandbox_hash: string;
+  applied_changes: ValidatedChange[];
+  before_findings: InvestigationFinding[];
+  after_findings: InvestigationFinding[];
+  remaining_issues: InvestigationFinding[];
+  xsd_valid: boolean;
+  review_status: string;
+  revalidated_by?: string | null;
+  ruleset_version?: string | null;
+  tested_at?: string | null;
+  disclaimer?: string | null;
+}
+
+export interface Repair {
+  status?: string | null;
+  proposal?: {
+    status?: string;
+    error?: string | null;
+    changes?: ProposedChange[];
+    missing_evidence?: string[];
+    recommended_next_step?: string | null;
+  } | null;
+  validated_changes?: ValidatedChange[];
+  rejected_changes?: RejectedChange[];
+  test?: RepairTest | null;
+}
+
 // ---------------------------------------------------------------- Investigations (Phase 1)
 
 export interface DemoCase {
@@ -849,6 +920,11 @@ export interface AgentResult {
   missing_evidence?: string[];
   recommended_next_step?: string | null;
   output_text?: string | null;
+  agent_rule_mentions?: string[];
+  engine_rule_ids?: string[];
+  agreement_rules?: string[];
+  answer_separation_reliable?: boolean;
+  reasoning_inline_excerpt?: string | null;
   raw?: Record<string, unknown>;
 }
 
@@ -856,6 +932,7 @@ export interface InvestigationDetail extends InvestigationSummary {
   input_hash: string;
   profile_version?: string | null;
   evolus_execution_id?: string | null;
+  evolus_trace_id?: string | null;
   deterministic_findings?: {
     message_version?: string | null;
     original_validation_status?: string | null;
@@ -867,6 +944,9 @@ export interface InvestigationDetail extends InvestigationSummary {
     ruleset_version?: string | null;
   } | null;
   agent_result?: AgentResult | null;
+  answer_text?: string | null;
+  supporting_record?: SupportingRecord | null;
+  repair?: Repair | null;
   synthetic_input?: string | null;
   disclaimer?: string;
 }
@@ -888,4 +968,11 @@ export function startInvestigation(demoCaseKey: string, startWorkflow = true) {
     method: 'POST',
     body: JSON.stringify({ demo_case_key: demoCaseKey, start_workflow: startWorkflow }),
   });
+}
+
+export function testRepair(investigationId: string) {
+  return apiJson<InvestigationDetail>(
+    `/api/v1/investigations/${encodeURIComponent(investigationId)}/repair/test`,
+    { method: 'POST' },
+  );
 }

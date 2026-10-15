@@ -35,6 +35,7 @@ from paymentops_api.observability import (
     investigations_total,
     tool_validations_total,
 )
+from paymentops_api.services import repair_service
 from paymentops_api.settings import Settings
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -87,17 +88,22 @@ def deterministic_record(result: IsoAnalysisResult) -> dict[str, Any]:
 
 def build_investigation_prompt(demo: DemoCase, case_ref: str) -> str:
     """Build the workflow input text. Contains no secrets and no raw payload."""
+    evidence = repair_service.build_evidence_block(demo.supporting_record)
+    contract = repair_service.build_proposal_contract()
     return (
         "Investigate the synthetic PaymentOps demo case.\n"
         f"case_ref: {case_ref}\n"
         f"message_version: {demo.message_version}\n"
+        f"{evidence}\n"
         "Required steps:\n"
         "1. Consult the 'PaymentOps Rules' knowledge library for applicable rule identifiers.\n"
         f'2. Call the PaymentOps validation tool with {{"case_ref": "{case_ref}"}} to obtain the '
         "deterministic validation result from the real PaymentOps engine.\n"
         "3. Report evidence-backed findings: cite the rule identifiers and field locations "
         "returned by the tool.\n"
-        "4. State which evidence is unavailable and the recommended human next step.\n"
+        "4. Propose a sandbox repair ONLY from the supporting record (never invent values).\n"
+        f"{contract}"
+        "5. State which evidence is unavailable and the recommended human next step.\n"
         "Do NOT treat structural validity as proof of payment safety, authorization, settlement, "
         "or account ownership. This is a synthetic demo case; no payment is executed.\n"
     )
@@ -189,6 +195,9 @@ async def start_investigation(
         profile_version=None,
         status="PENDING",
         deterministic_findings=deterministic_record(result),
+        supporting_record=(
+            demo.supporting_record.to_dict() if demo.supporting_record is not None else None
+        ),
         created_at=datetime.now(UTC),
     )
     session.add(investigation)
@@ -317,6 +326,21 @@ async def refresh_investigation(
                 if isinstance(finding, dict) and finding.get("rule_id")
             }
         inv.agent_result = parse_agent_result(execution, engine_rule_ids=engine_ids)
+        proposal = repair_service.parse_repair_proposal(execution)
+        answer, reasoning, reliable = repair_service.parse_final_answer(
+            execution, proposal.get("raw_block")
+        )
+        inv.answer_text = answer or None
+        agent_result = dict(inv.agent_result or {})
+        mentions = sorted(_rule_ids_from_text(execution.output_text))
+        agent_result["agent_rule_mentions"] = mentions
+        agent_result["engine_rule_ids"] = sorted(engine_ids or [])
+        agent_result["agreement_rules"] = sorted(set(mentions) & set(engine_ids or []))
+        agent_result["answer_separation_reliable"] = reliable
+        if reasoning:
+            agent_result["reasoning_inline_excerpt"] = reasoning[:2000]
+        inv.agent_result = agent_result
+        inv.repair = {"status": proposal.get("status"), "proposal": proposal}
         inv.error = None
     elif execution.status == "FAILED":
         inv.error = execution.error_text or "The Evolus investigation run reported failure."

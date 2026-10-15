@@ -25,7 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from paymentops_api.auth import AuthenticatedClient, get_api_client, get_db
 from paymentops_api.db.models import Investigation
 from paymentops_api.evolus.demo_cases import get_demo_case, list_demo_cases
-from paymentops_api.services import investigation_service
+from paymentops_api.services import investigation_service, repair_service
 
 router = APIRouter(tags=["investigations"])
 
@@ -139,6 +139,37 @@ async def get_investigation(
     return _detail(inv)
 
 
+@router.post("/api/v1/investigations/{investigation_id}/repair/test")
+async def test_repair(
+    investigation_id: str,
+    request: Request,
+    client: AuthenticatedClient = Depends(get_api_client),
+    session: AsyncSession = Depends(get_db),
+) -> dict[str, object]:
+    """Validate the agent's proposed repair and test it on a sandbox copy of the payload.
+
+    The original input is never mutated; only allowlisted, evidence-backed changes are applied
+    and the sandbox is re-validated by the real deterministic engine.
+    """
+    try:
+        inv = await investigation_service.get_investigation(
+            session, client.organization_id, investigation_id
+        )
+    except LookupError:
+        raise HTTPException(status_code=404, detail="investigation not found") from None
+    if inv.status != "COMPLETED" or not inv.repair:
+        raise HTTPException(
+            status_code=409, detail="no completed investigation with a proposal to test"
+        )
+    inv = await repair_service.test_repair(
+        session,
+        inv,
+        pipeline=request.app.state.analysis_pipeline,
+        registry=request.app.state.iso_registry,
+    )
+    return _detail(inv)
+
+
 @router.post("/api/v1/evolus/tools/validate-case")
 async def validate_case_tool(
     body: ValidateCaseRequest,
@@ -196,8 +227,12 @@ def _detail(inv: Investigation) -> dict[str, object]:
         "input_hash": inv.input_hash,
         "profile_version": inv.profile_version,
         "evolus_execution_id": inv.evolus_execution_id,
+        "evolus_trace_id": inv.evolus_trace_id,
         "deterministic_findings": inv.deterministic_findings,
         "agent_result": inv.agent_result,
+        "answer_text": inv.answer_text,
+        "supporting_record": inv.supporting_record,
+        "repair": inv.repair,
         "synthetic_input": input_preview,
         "disclaimer": _DISCLAIMER,
     }

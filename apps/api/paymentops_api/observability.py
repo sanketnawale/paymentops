@@ -198,6 +198,11 @@ tool_validations_total = Counter(
     "Validation tool invocations",
     ("result",),
 )
+repair_tests_total = Counter(
+    "paymentops_repair_tests_total",
+    "Sandbox repair tests",
+    ("status",),
+)
 
 
 class MetricAddressProvider(AddressProvider):

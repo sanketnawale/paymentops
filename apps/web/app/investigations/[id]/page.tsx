@@ -15,7 +15,7 @@ import {
   PageHeader,
   Skeleton,
 } from '@/components/ui';
-import { getInvestigation, type InvestigationDetail } from '@/lib/api';
+import { getInvestigation, testRepair, type InvestigationDetail } from '@/lib/api';
 import { badgeClass, formatDateTime, labelize } from '@/lib/status';
 
 const TERMINAL = new Set(['COMPLETED', 'FAILED', 'PREPARED']);
@@ -26,6 +26,8 @@ export default function InvestigationDetailPage() {
   const { id } = useParams<{ id: string }>();
   const [detail, setDetail] = useState<InvestigationDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [repairBusy, setRepairBusy] = useState(false);
+  const [repairError, setRepairError] = useState<string | null>(null);
   const polls = useRef(0);
 
   const load = useCallback(async (): Promise<InvestigationDetail | null> => {
@@ -63,7 +65,23 @@ export default function InvestigationDetailPage() {
   const running = detail ? !TERMINAL.has(detail.status) : false;
   const findings = detail?.deterministic_findings?.rule_findings ?? [];
   const agent = detail?.agent_result;
+  const record = detail?.supporting_record;
+  const repair = detail?.repair;
+  const proposal = repair?.proposal;
+  const sandbox = repair?.test;
   const firstRuleFinding = findings[0];
+
+  const runRepairTest = async () => {
+    setRepairBusy(true);
+    setRepairError(null);
+    try {
+      setDetail(await testRepair(id));
+    } catch (e) {
+      setRepairError(e instanceof Error ? e.message : 'Repair test failed');
+    } finally {
+      setRepairBusy(false);
+    }
+  };
 
   return (
     <AppShell>
@@ -211,25 +229,54 @@ export default function InvestigationDetailPage() {
                 ) : null}
 
                 {detail.status === 'COMPLETED' && !detail.error ? (
-                  agent && (agent.explanation || agent.cited_rules?.length) ? (
+                  agent && (detail.answer_text || agent.explanation || agent.cited_rules?.length) ? (
                     <>
-                      {agent.explanation ? (
-                        <p style={{ marginTop: 0, whiteSpace: 'pre-wrap' }}>{agent.explanation}</p>
+                      <p className="field-label" style={{ marginTop: 0 }}>Final answer</p>
+                      <p style={{ marginTop: 0, whiteSpace: 'pre-wrap' }}>
+                        {detail.answer_text || agent.explanation}
+                      </p>
+                      {agent.answer_separation_reliable === false ? (
+                        <Notice tone="warn">
+                          <span>
+                            Formatting note: the final answer could not be cleanly separated from
+                            the model&apos;s inline reasoning, so the full agent text is shown.
+                            Nothing was removed.
+                          </span>
+                        </Notice>
                       ) : null}
-                      {agent.cited_rules && agent.cited_rules.length > 0 ? (
+                      {agent.reasoning_inline_excerpt ? (
                         <>
                           <p className="field-label" style={{ marginTop: '0.75rem' }}>
-                            Cited rules
+                            Model reasoning (separate)
                           </p>
-                          <ul className="status-list">
-                            {agent.cited_rules.map((rule) => (
-                              <li key={rule}>
-                                <span className="mono">{rule}</span>
-                              </li>
-                            ))}
-                          </ul>
+                          <pre
+                            className="mono"
+                            style={{ margin: 0, maxHeight: 160, overflow: 'auto', whiteSpace: 'pre-wrap', fontSize: '0.72rem' }}
+                          >
+                            {agent.reasoning_inline_excerpt}
+                          </pre>
                         </>
                       ) : null}
+                      <p className="field-label" style={{ marginTop: '0.75rem' }}>
+                        Rule agreement (agent mentions ∩ engine)
+                      </p>
+                      {agent.agreement_rules && agent.agreement_rules.length > 0 ? (
+                        <ul className="status-list">
+                          {agent.agreement_rules.map((rule) => (
+                            <li key={rule}>
+                              <span className="mono">{rule}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <p className="muted small">None.</p>
+                      )}
+                      <p className="muted small" style={{ marginTop: '0.5rem' }}>
+                        Agent-mentioned: <span className="mono">{(agent.agent_rule_mentions ?? []).join(', ') || '—'}</span>
+                        <br />
+                        Engine-reported: <span className="mono">{(agent.engine_rule_ids ?? []).join(', ') || '—'}</span>
+                        <br />A matching rule id is agreement, not proof that the explanation is correct.
+                      </p>
                       <p className="field-label" style={{ marginTop: '0.75rem' }}>
                         Missing evidence
                       </p>
@@ -248,7 +295,7 @@ export default function InvestigationDetailPage() {
                         Recommended human next step
                       </p>
                       <p style={{ marginTop: 0 }}>
-                        {agent.recommended_next_step ?? 'Not provided by the agent.'}
+                        {agent.recommended_next_step ?? proposal?.recommended_next_step ?? 'Not provided by the agent.'}
                       </p>
                     </>
                   ) : (
@@ -273,6 +320,122 @@ export default function InvestigationDetailPage() {
                       this run (prepare-only mode).
                     </span>
                   </Notice>
+                ) : null}
+              </div>
+            </Card>
+
+            {record ? (
+              <Card>
+                <CardHead title="Supporting evidence" sub={`${record.record_id} · synthetic demo record`} />
+                <div className="card-body">
+                  <p className="muted small" style={{ marginTop: 0 }}>
+                    {record.label} — {record.source}
+                  </p>
+                  <ul className="status-list">
+                    {(record.entries ?? []).map((e) => (
+                      <li key={e.ref}>
+                        <span>
+                          <strong className="mono">{e.party}</strong> · {e.field} = <strong>{e.value}</strong>
+                          <br />
+                          <span className="muted small mono">{e.ref}</span>
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                  {(record.gaps ?? []).map((g, i) => (
+                    <p key={`gap-${i}`} className="muted small">GAP: {g}</p>
+                  ))}
+                  {(record.contradictions ?? []).map((c, i) => (
+                    <p key={`con-${i}`} className="muted small">CONTRADICTION: {c}</p>
+                  ))}
+                </div>
+              </Card>
+            ) : null}
+
+            <Card>
+              <CardHead
+                title="Sandbox repair"
+                sub="Evidence-backed; the original payload is never modified"
+                actions={<span className={badgeClass(repair?.status ?? 'NONE')}>{labelize(repair?.status ?? 'NONE')}</span>}
+              />
+              <div className="card-body">
+                {proposal?.status === 'PROPOSAL_UNPARSEABLE' ? (
+                  <Notice tone="warn">
+                    <span>No structured proposal could be parsed from the agent output: {proposal.error}</span>
+                  </Notice>
+                ) : null}
+                <p className="field-label" style={{ marginTop: 0 }}>Proposed field changes</p>
+                {(proposal?.changes ?? []).length === 0 ? (
+                  <p className="muted small">No changes proposed.</p>
+                ) : (
+                  <ul className="status-list">
+                    {(proposal?.changes ?? []).map((c, i) => (
+                      <li key={i}>
+                        <span>
+                          <strong className="mono">{c.target}</strong> = {c.value}
+                          <br />
+                          <span className="muted small">evidence: <span className="mono">{c.evidence_ref}</span></span>
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {(repair?.rejected_changes ?? []).length > 0 ? (
+                  <>
+                    <p className="field-label" style={{ marginTop: '0.75rem' }}>Rejected changes</p>
+                    <ul className="status-list">
+                      {(repair?.rejected_changes ?? []).map((r, i) => (
+                        <li key={i}>
+                          <span>
+                            <strong className="mono">{r.target || '—'}</strong> · {r.reason}
+                          </span>
+                          <span className={badgeClass('REJECTED')}>{labelize('REJECTED')}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                ) : null}
+                <Button
+                  onClick={runRepairTest}
+                  disabled={repairBusy || !proposal || proposal.status !== 'PROPOSED'}
+                  style={{ marginTop: '0.75rem' }}
+                >
+                  {repairBusy ? 'Testing…' : 'Test proposed repair'}
+                </Button>
+                {repairError ? (
+                  <p className="small" style={{ color: 'var(--cn-danger)' }} role="alert">{repairError}</p>
+                ) : null}
+
+                {sandbox ? (
+                  <>
+                    <p className="field-label" style={{ marginTop: '0.75rem' }}>Sandbox re-validation</p>
+                    <ul className="status-list">
+                      <li><span className="label">Review status</span><span className={badgeClass(sandbox.review_status)}>{labelize(sandbox.review_status)}</span></li>
+                      <li><span className="label">XSD valid</span><span>{String(sandbox.xsd_valid)}</span></li>
+                      <li><span className="label">Original hash</span><span className="mono">{sandbox.original_hash ? `${sandbox.original_hash.slice(0, 16)}…` : '—'}</span></li>
+                      <li><span className="label">Sandbox hash</span><span className="mono">{sandbox.sandbox_hash ? `${sandbox.sandbox_hash.slice(0, 16)}…` : '—'}</span></li>
+                      <li><span className="label">Re-validated by</span><span className="mono">{sandbox.revalidated_by ?? '—'}</span></li>
+                    </ul>
+                    <p className="field-label" style={{ marginTop: '0.75rem' }}>Findings: original → sandbox</p>
+                    <ul className="status-list">
+                      <li><span>Original</span><span className="mono">{(sandbox.before_findings ?? []).map((f) => f.rule_id).join(', ') || 'none'}</span></li>
+                      <li><span>Sandbox</span><span className="mono">{(sandbox.after_findings ?? []).map((f) => f.rule_id).join(', ') || 'none'}</span></li>
+                    </ul>
+                    {(sandbox.applied_changes ?? []).length > 0 ? (
+                      <>
+                        <p className="field-label" style={{ marginTop: '0.75rem' }}>Applied changes (sandbox only)</p>
+                        <ul className="status-list">
+                          {(sandbox.applied_changes ?? []).map((a, i) => (
+                            <li key={i}>
+                              <span className="mono">{a.path}</span>
+                              <span className="muted small">{a.before ?? '—'} → {a.after}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </>
+                    ) : null}
+                    <p className="muted small" style={{ marginTop: '0.5rem' }}>{sandbox.disclaimer}</p>
+                  </>
                 ) : null}
               </div>
             </Card>

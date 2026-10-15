@@ -277,6 +277,10 @@ def _severity_blocking(findings: list[dict[str, Any]]) -> bool:
     return any(str(f.get("severity", "")).upper() in _SEVERITIES_BLOCKING for f in findings)
 
 
+def _finding_key(finding: dict[str, Any]) -> tuple[str, str]:
+    return (str(finding.get("rule_id", "")), str(finding.get("target", "")))
+
+
 # --------------------------------------------------------------------------- sandbox test
 
 
@@ -340,14 +344,20 @@ async def test_repair(
         sandbox_xml = serialize(new_root)
         sandbox_result = pipeline.analyze_iso(sandbox_xml.encode("utf-8"), registry)
         after_findings = sandbox_result.rule_findings
-        targeted_prefixes = {f"{c['target'].split('/')[0]}/PstlAdr" for c in applied}
-        remaining_on_targets = [
-            f for f in after_findings if str(f.get("target", "")) in targeted_prefixes
-        ]
+        raw_before = (inv.deterministic_findings or {}).get("rule_findings")
+        before_findings = raw_before if isinstance(raw_before, list) else []
+        # A sandbox repair is only "validated" when it resolves ALL original findings. Any
+        # original finding still present (e.g. a field with no supporting evidence, so no
+        # change could be proposed) forces human review.
+        before_keys = {_finding_key(f) for f in before_findings if isinstance(f, dict)}
+        after_keys = {_finding_key(f) for f in after_findings if isinstance(f, dict)}
+        unresolved_keys = sorted(before_keys & after_keys)
+        unresolved = [{"rule_id": rid, "target": target} for (rid, target) in unresolved_keys]
         if (
             sandbox_result.schema_validation
             and not _severity_blocking(after_findings)
-            and not remaining_on_targets
+            and not unresolved
+            and not rejected
         ):
             review_status = "VALIDATED"
         else:
@@ -357,10 +367,10 @@ async def test_repair(
             "original_hash": inv.input_hash,
             "sandbox_hash": hashlib.sha256(sandbox_xml.encode("utf-8")).hexdigest(),
             "applied_changes": [a for a in applied if not a.get("noop")],
-            "before_findings": (inv.deterministic_findings or {}).get("rule_findings") or [],
+            "before_findings": before_findings,
             "after_findings": after_findings,
             "remaining_issues": after_findings,
-            "remaining_on_targets": remaining_on_targets,
+            "unresolved_findings": unresolved,
             "xsd_valid": sandbox_result.schema_validation,
             "review_status": review_status,
             "revalidated_by": f"paymentops-engine {sandbox_result.engine_version}",

@@ -421,6 +421,18 @@ export default function InvestigationDetailPage() {
                       <li><span>Original</span><span className="mono">{(sandbox.before_findings ?? []).map((f) => f.rule_id).join(', ') || 'none'}</span></li>
                       <li><span>Sandbox</span><span className="mono">{(sandbox.after_findings ?? []).map((f) => f.rule_id).join(', ') || 'none'}</span></li>
                     </ul>
+                    {(sandbox.unresolved_findings ?? []).length > 0 ? (
+                      <>
+                        <p className="field-label" style={{ marginTop: '0.75rem' }}>Unresolved (needs human review)</p>
+                        <ul className="status-list">
+                          {(sandbox.unresolved_findings ?? []).map((f, i) => (
+                            <li key={i}>
+                              <span className="mono">{f.rule_id}@{f.target}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </>
+                    ) : null}
                     {(sandbox.applied_changes ?? []).length > 0 ? (
                       <>
                         <p className="field-label" style={{ marginTop: '0.75rem' }}>Applied changes (sandbox only)</p>

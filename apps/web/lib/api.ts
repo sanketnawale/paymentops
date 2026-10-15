@@ -857,6 +857,7 @@ export interface RepairTest {
   before_findings: InvestigationFinding[];
   after_findings: InvestigationFinding[];
   remaining_issues: InvestigationFinding[];
+  unresolved_findings?: { rule_id: string; target: string }[];
   xsd_valid: boolean;
   review_status: string;
   revalidated_by?: string | null;

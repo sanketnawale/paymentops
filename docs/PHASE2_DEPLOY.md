@@ -94,8 +94,8 @@ Generated values were written only to the gitignored local `.env`. `EVOLUS_APPLI
 | Tool, correct `X-Tool-Key` | 200 — `case_ref=inv-17ae8a6a2937`, `validation.status=valid`, findings `ADR-001`, `input_unchanged=true` |
 | Tool, wrong/missing key | 401 |
 | Business app `paymentops-site` | 1/1 (unchanged) |
-| Domain route | none (`httproute.yaml` intentionally not enabled) |
-| NetworkPolicy | default-deny ingress; only web(gateway+ns), api(ns), postgres(api/migrate/seed) allowed. **Egress unrestricted** → DNS, in-namespace DB, and outbound Evolus API are reachable; no business access. |
+| Domain route | HTTPRoute `Accepted=True`; frontend `/`→`/login` (307, relative Location), `/login` 200; tool 200/401 via Envoy `public-envoy` |
+| NetworkPolicy | default-deny ingress; web ← gateway+ns, api ← ns+jobs+`envoy-gateway-system`, postgres ← api/migrate/seed. **Egress unrestricted** (DNS, in-namespace DB, outbound Evolus API); no business access. |
 
 **Real test investigation (deployed database):** `inv-17ae8a6a2937`
 (`demo_case_key=pacs008-missing-town`, `status=PREPARED`, 2× `ADR-001`, `input_hash=a78e9098…`).
@@ -109,13 +109,33 @@ Generated values were written only to the gitignored local `.env`. `EVOLUS_APPLI
 - Prepare-only creation (does not start the (unconnected) workflow):
   `POST /api/v1/investigations` `{"demo_case_key":"pacs008-missing-town","start_workflow":false}`
 
-## 8. Domain (Step 6 — disabled)
+## 8. Domain / Cloudflare Tunnel (ENABLED)
 
-`overlays/dr/httproute.yaml` is prepared but not listed in the overlay. To enable:
-add it to `overlays/dr/kustomization.yaml`, set the hostname (proposed
-`paymentops-hackathon.cloudnova.tech`) in the route and ConfigMap (`CORS_ALLOWED_ORIGINS`,
-`ALLOWED_HOSTS`), and add a matching **Cloudflare Tunnel** ingress rule + DNS record (remote).
-TLS terminates at Cloudflare; there is no cert-manager issuer.
+The route `overlays/dr/httproute.yaml` is now listed in the overlay and reconciles green
+(`Accepted=True`, `ResolvedRefs=True`). Exposure uses the **shared Cloudflare Tunnel → Envoy
+`public-gateway`** path, exactly like the other published apps (host-based routing).
+
+Tunnel connector: deployment `cloudflared` in namespace `cloudflare` (token-based,
+dashboard-managed). The gateway's data-plane Service is `public-envoy`
+(namespace `envoy-gateway-system`, ClusterIP, port 80) — confirmed as the `public-gateway`
+status address (`10.43.116.175`).
+
+**Exact Cloudflare Zero Trust → Networks → Tunnels → Public Hostname values:**
+
+| Field | Value |
+| --- | --- |
+| Subdomain | `paymentops-hackathon` |
+| Domain | `cloudnova.tech` |
+| Path | *(empty)* |
+| **Service type** | **HTTP** |
+| **URL** | **`public-envoy.envoy-gateway-system.svc.cluster.local:80`** |
+| HTTP Host Header | *(leave empty — defaults to the public hostname)* |
+
+The single origin reaches both surfaces because Envoy dispatches by Host and the HTTPRoute
+splits by path: `/api/v1/evolus/*` → `paymentops-hackathon-api:8000`; everything else →
+`paymentops-hackathon-web:80`. Cloudflare terminates TLS (no cert-manager issuer).
+
+TLS/DNS are managed in Cloudflare; no in-cluster certificate is used.
 
 ## 9. Rollback (hackathon only)
 

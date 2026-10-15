@@ -308,7 +308,15 @@ async def refresh_investigation(
     if execution.trace_id:
         inv.evolus_trace_id = execution.trace_id
     if execution.status == "COMPLETED":
-        inv.agent_result = parse_agent_result(execution)
+        engine_ids: set[str] | None = None
+        raw_findings = (inv.deterministic_findings or {}).get("rule_findings")
+        if isinstance(raw_findings, list):
+            engine_ids = {
+                str(finding["rule_id"])
+                for finding in raw_findings
+                if isinstance(finding, dict) and finding.get("rule_id")
+            }
+        inv.agent_result = parse_agent_result(execution, engine_rule_ids=engine_ids)
         inv.error = None
     elif execution.status == "FAILED":
         inv.error = execution.error_text or "The Evolus investigation run reported failure."
@@ -320,8 +328,15 @@ async def refresh_investigation(
 # --------------------------------------------------------------------------- agent result
 
 
-def parse_agent_result(execution: WorkflowExecution) -> dict[str, Any]:
-    """Parse an agent result defensively. The raw body is always preserved."""
+def parse_agent_result(
+    execution: WorkflowExecution, *, engine_rule_ids: set[str] | None = None
+) -> dict[str, Any]:
+    """Parse an agent result defensively. The raw body is always preserved.
+
+    When ``engine_rule_ids`` is provided, the agent's cited rules are constrained to the rules
+    the deterministic engine actually reported. This prevents the agent from echoing the whole
+    rules catalogue (observed in a real run) being mistaken for case findings.
+    """
     parsed: dict[str, Any] = {
         "explanation": None,
         "cited_rules": [],
@@ -348,7 +363,11 @@ def parse_agent_result(execution: WorkflowExecution) -> dict[str, Any]:
     if not parsed["explanation"] and execution.output_text:
         parsed["explanation"] = execution.output_text
     if not parsed["cited_rules"] and execution.output_text:
-        parsed["cited_rules"] = sorted(_rule_ids_from_text(execution.output_text))
+        text_rules = _rule_ids_from_text(execution.output_text)
+        if engine_rule_ids is not None:
+            parsed["cited_rules"] = sorted(text_rules & engine_rule_ids)
+        else:
+            parsed["cited_rules"] = sorted(text_rules)
     return parsed
 
 

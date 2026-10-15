@@ -162,3 +162,19 @@ def test_parse_agent_result_ignores_rule_catalog_table():
     assert parsed["cited_rules"] == ["ADR-001"]
     # The full report text is preserved verbatim (no broad filtering of report content).
     assert parsed["explanation"] == output
+
+
+def test_parse_agent_result_constrains_citations_to_engine_findings():
+    """Regression: a real run echoed rule ids in prose; constrain to engine findings."""
+    output = (
+        "Summary of the case. The finding is ADR-001; for completeness ADR-002 and ISO-003 "
+        "also exist in the ruleset.\n"
+    )
+    execution = WorkflowExecution(
+        status="COMPLETED", raw_status="Completed", output_text=output, result=None, raw={}
+    )
+    parsed = svc.parse_agent_result(execution, engine_rule_ids={"ADR-001"})
+    assert parsed["cited_rules"] == ["ADR-001"]
+    # Without the engine constraint, extraction is best-effort and returns all mentions.
+    loose = svc.parse_agent_result(execution)
+    assert set(loose["cited_rules"]) == {"ADR-001", "ADR-002", "ISO-003"}

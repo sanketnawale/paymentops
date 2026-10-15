@@ -155,3 +155,59 @@ async def test_get_execution_not_found_is_error():
 )
 def test_normalize_execution_status(raw, expected):
     assert normalize_execution_status(raw) == expected
+
+
+# --- Regression tests against the OBSERVED real Evolus execution body shape ---
+# Captured from a completed run (execution ac6ad082-c3c8-f111-bf5b-000d3aae6dc8):
+#   top-level ``output`` is the agent text (string); ``stepOutputs`` is an object keyed by
+#   step number whose values repeat ``output``; ``error`` is a list (``[]`` on success);
+#   ``status`` is "Completed"; ``traceId`` is present on the execution.
+_REAL_COMPLETED = {
+    "id": "ac6ad082-c3c8-f111-bf5b-000d3aae6dc8",
+    "applicationId": "115a7a88-a2c9-4951-b280-80b104a2f4a3",
+    "workflowId": "af52e17d-4f3c-4c57-817c-fe50c624ccb7",
+    "output": "Reasoning...\n\n### Findings\n- `ADR-001` at Dbtr/PstlAdr\n",
+    "stepOutputs": {
+        "1": "Reasoning...\n\n### Findings\n- `ADR-001` at Dbtr/PstlAdr\n",
+        "2": "Reasoning...\n\n### Findings\n- `ADR-001` at Dbtr/PstlAdr\n",
+    },
+    "status": "Completed",
+    "error": [],
+    "traceId": "00-trace-abc",
+    "totalStepsExecuted": 2,
+}
+
+
+async def test_get_execution_real_completed_shape():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=_REAL_COMPLETED)
+
+    execution = await _client(handler).get_execution("ac6ad082-c3c8-f111-bf5b-000d3aae6dc8")
+    assert execution.status == "COMPLETED"
+    assert execution.raw_status == "Completed"
+    assert execution.output_text and "ADR-001" in execution.output_text
+    assert execution.error_text is None
+    assert execution.trace_id == "00-trace-abc"
+
+
+async def test_get_execution_failed_surfaces_error_array():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={"status": "Failed", "error": ["tool unavailable", "aborted"], "traceId": "t2"},
+        )
+
+    execution = await _client(handler).get_execution("x")
+    assert execution.status == "FAILED"
+    assert execution.error_text == "tool unavailable | aborted"
+
+
+async def test_get_execution_stepoutputs_fallback_when_output_absent():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200, json={"status": "Completed", "stepOutputs": {"1": "only step text"}, "error": []}
+        )
+
+    execution = await _client(handler).get_execution("x")
+    assert execution.status == "COMPLETED"
+    assert execution.output_text == "only step text"

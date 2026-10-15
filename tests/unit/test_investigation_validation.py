@@ -136,3 +136,29 @@ def test_parse_agent_result_prefers_structured_fields():
     assert parsed["missing_evidence"] == ["No sanctions data available"]
     assert parsed["recommended_next_step"] == "Route to a human reviewer"
     assert parsed["raw"] == {"status": "Completed"}
+
+
+def test_parse_agent_result_ignores_rule_catalog_table():
+    """Regression: the agent echoes the rules KB as a markdown table.
+
+    Observed real output echoed the catalogue (``| `ADR-002` | Country missing | ERROR |``),
+    which must not be reported as cited findings for the case.
+    """
+    output = (
+        "Reasoning preamble...\n"
+        "### Findings\n"
+        "- Two `ADR-001` warnings at Dbtr/PstlAdr and Cdtr/PstlAdr.\n"
+        "### Rule catalogue\n"
+        "| Rule | Name | Severity |\n"
+        "| --- | --- | --- |\n"
+        "| `ADR-001` | Town name missing | WARNING |\n"
+        "| `ADR-002` | Country missing | ERROR |\n"
+        "| `ADR-003` | Country code invalid | ERROR |\n"
+    )
+    execution = WorkflowExecution(
+        status="COMPLETED", raw_status="Completed", output_text=output, result=None, raw={}
+    )
+    parsed = svc.parse_agent_result(execution)
+    assert parsed["cited_rules"] == ["ADR-001"]
+    # The full report text is preserved verbatim (no broad filtering of report content).
+    assert parsed["explanation"] == output

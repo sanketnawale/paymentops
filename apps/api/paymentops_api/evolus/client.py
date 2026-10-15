@@ -94,6 +94,8 @@ class WorkflowExecution:
     raw_status: str
     output_text: str | None = None
     result: dict[str, Any] | None = None
+    error_text: str | None = None
+    trace_id: str | None = None
     raw: dict[str, Any] = field(default_factory=dict)
 
 
@@ -132,6 +134,8 @@ def _safe_json(response: httpx.Response) -> dict[str, Any]:
 def _extract_output(body: dict[str, Any]) -> tuple[str | None, dict[str, Any] | None]:
     """Best-effort extraction of the agent output from a completed execution body.
 
+    Observed Evolus shape (real run): the agent text is at top-level ``output`` (a string);
+    ``stepOutputs`` is an object keyed by step number whose values may repeat ``output``.
     Returns ``(text, structured)``. Never raises; unknown shapes yield ``(None, None)``.
     """
     for key in _OUTPUT_KEYS:
@@ -142,9 +146,33 @@ def _extract_output(body: dict[str, Any]) -> tuple[str | None, dict[str, Any] | 
             text = _deep_text(value)
             return text, value
         if isinstance(value, list):
-            text = json.dumps(value, ensure_ascii=False)
-            return text, {"items": value}
+            return json.dumps(value, ensure_ascii=False), {"items": value}
+    # Fall back to per-step outputs (observed: {"1": "...", "2": "..."}).
+    steps = body.get("stepOutputs")
+    if isinstance(steps, dict):
+        texts = [v for v in steps.values() if isinstance(v, str) and v.strip()]
+        if texts:
+            merged = texts[-1] if len(set(texts)) == 1 else "\n\n".join(texts)
+            return merged, {"stepOutputs": steps}
     return None, None
+
+
+def _extract_error(body: dict[str, Any]) -> str | None:
+    """Extract a failure message from the observed top-level ``error`` field.
+
+    Observed: ``error`` is a list (``[]`` on success). Falls back to ``detail``.
+    """
+    error = body.get("error")
+    if isinstance(error, str) and error.strip():
+        return error.strip()[:1000]
+    if isinstance(error, list):
+        parts = [str(item).strip() for item in error if str(item).strip()]
+        if parts:
+            return " | ".join(parts)[:1000]
+    detail = body.get("detail")
+    if isinstance(detail, str) and detail.strip():
+        return detail.strip()[:1000]
+    return None
 
 
 def _deep_text(value: dict[str, Any]) -> str | None:
@@ -308,5 +336,7 @@ class EvolusClient:
             raw_status=raw_status,
             output_text=output_text,
             result=result,
+            error_text=_extract_error(body),
+            trace_id=_opt_str(body.get("traceId")),
             raw=body,
         )

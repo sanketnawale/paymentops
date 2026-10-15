@@ -50,7 +50,8 @@ def test_safe_info_never_exposes_secrets():
 
 
 def test_release_version_and_build_metadata():
-    s = Settings()
+    # Hermetic: do not read a developer's local .env (which may set APP_VERSION etc.).
+    s = Settings(_env_file=None)
     assert s.app_version == "0.1.0-eval"
     info = s.safe_info()
     assert info["release"] == "v1 Evaluation Release"

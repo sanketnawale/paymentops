@@ -305,10 +305,13 @@ async def refresh_investigation(
 
     inv.status = execution.status
     inv.agent_status = execution.raw_status or None
+    if execution.trace_id:
+        inv.evolus_trace_id = execution.trace_id
     if execution.status == "COMPLETED":
         inv.agent_result = parse_agent_result(execution)
+        inv.error = None
     elif execution.status == "FAILED":
-        inv.error = "The Evolus investigation run reported failure."
+        inv.error = execution.error_text or "The Evolus investigation run reported failure."
     inv.updated_at = datetime.now(UTC)
     await session.commit()
     return inv
@@ -345,7 +348,7 @@ def parse_agent_result(execution: WorkflowExecution) -> dict[str, Any]:
     if not parsed["explanation"] and execution.output_text:
         parsed["explanation"] = execution.output_text
     if not parsed["cited_rules"] and execution.output_text:
-        parsed["cited_rules"] = sorted(set(_RULE_ID_RE.findall(execution.output_text)))
+        parsed["cited_rules"] = sorted(_rule_ids_from_text(execution.output_text))
     return parsed
 
 
@@ -380,12 +383,30 @@ def _extract_rules(data: dict[str, Any]) -> list[str]:
     rules = _as_str_list(raw)
     if rules:
         return sorted(set(rules))
-    # Fall back to scanning any free-text fields for known rule identifiers.
+    # Fall back to scanning free-text fields for known rule identifiers.
     found: set[str] = set()
     for value in data.values():
         if isinstance(value, str):
-            found.update(_RULE_ID_RE.findall(value))
+            found.update(_rule_ids_from_text(value))
     return sorted(found)
+
+
+def _rule_ids_from_text(text: str | None) -> set[str]:
+    """Rule identifiers mentioned in prose, excluding markdown table rows.
+
+    Observed failure mode: the agent echoes the rules knowledge base as a markdown table
+    (``| `ADR-002` | Country missing | ERROR | ... |``), which is not a finding for the case.
+    We skip table rows so "cited rules" reflect real findings rather than the rule catalogue,
+    while never filtering the report text itself.
+    """
+    if not text:
+        return set()
+    found: set[str] = set()
+    for line in text.splitlines():
+        if "|" in line:
+            continue
+        found.update(_RULE_ID_RE.findall(line))
+    return found
 
 
 # --------------------------------------------------------------------------- validation tool

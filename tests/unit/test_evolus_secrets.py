@@ -24,7 +24,7 @@ def test_safe_info_never_exposes_evolus_secrets():
 
 
 def test_safe_info_reports_not_configured_without_secrets():
-    info = Settings(evolus_enabled=True).safe_info()
+    info = Settings(evolus_enabled=True, _env_file=None).safe_info()
     assert info["evolus_configured"] is False
     assert info["evolus_tool_configured"] is False
 

@@ -43,11 +43,27 @@ Record of the first **app-driven** real investigation through Evolus (AMD Token 
 - `_extract_output` falls back to `stepOutputs` when `output` is absent.
 - `traceId` is captured from the execution body into the investigation.
 - "Cited rules" extraction ignores **markdown table rows**, so echoing the rules catalogue
-  (`| \`ADR-002\` | … |`) no longer produces bogus citations; real findings (`ADR-001`) are kept.
-  The report text itself is never filtered.
+  (`| \`ADR-002\` | … |`) no longer produces bogus citations.
+- **Agent citations are constrained to the deterministic engine's findings**
+  (`agent_result.cited_rules` = ids the agent mentions ∩ ids the engine actually reported). A
+  later real run echoed the whole catalogue in prose (`ADR-001…005`, `ISO-001…003`,
+  `SEM-001…003`); after the fix it reported only `ADR-001`. The report text is never filtered.
+- Deployment robustness: the two Jobs carry `kustomize.toolkit.fluxcd.io/force: enabled` so Flux
+  can re-create them when the image tag changes (Job pod templates are immutable).
 - Regression tests: `tests/unit/test_evolus_client.py` (real completed/failed/step-fallback
   shapes) and `tests/unit/test_investigation_validation.py` (rule-catalogue table ignored,
   reasoning preserved).
+
+## Final confirmation run (after deploying the fix)
+
+| Item | Value |
+| --- | --- |
+| Investigation | `inv-b6557bc700cf` |
+| Evolus execution | `a1b5255c-ccc8-f111-bf5b-000d3aae6dc8` |
+| Status | `COMPLETED` (`error=[]`, traceId present) |
+| Parsed `cited_rules` | `["ADR-001"]` — matches engine findings (`ADR-001` ×2) |
+| Tool call | API log `200` from Envoy; audit `investigation.validation_tool` result `valid` |
+| Wrong tool key | `401` |
 
 ## Limitations
 - The agent emits reasoning inline in `output`; we preserve it rather than risk dropping content.

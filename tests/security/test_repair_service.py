@@ -188,3 +188,18 @@ async def test_incomplete_evidence_requires_review_no_invented_town():
             for f in repair["test"]["after_findings"]
         )
     await engine.dispose()
+
+
+async def test_empty_proposal_with_missing_evidence_requires_review():
+    """No proposal at all (agent cannot invent) still requires review when findings remain."""
+    engine = create_async_engine(os.environ["TEST_DATABASE_URL"])
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with factory() as session:
+        inv = await _make_investigation(session, "pacs008-missing-town-incomplete", [])
+        inv = await repair_service.test_repair(
+            session, inv, pipeline=_pipeline(), registry=build_default_registry()
+        )
+        repair = inv.repair or {}
+        assert repair["status"] == "REVIEW_REQUIRED"
+        assert repair["test"] is None
+    await engine.dispose()

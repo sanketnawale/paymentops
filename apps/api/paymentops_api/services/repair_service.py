@@ -334,6 +334,8 @@ async def test_repair(
             {**change, "path": path, "before": before, "after": change["value"], "noop": False}
         )
 
+    raw_before = (inv.deterministic_findings or {}).get("rule_findings")
+    before_findings = raw_before if isinstance(raw_before, list) else []
     sandbox_test: dict[str, Any] | None = None
     if diff_entries:
         # Reconstruct the sandbox from the ORIGINAL tree (never mutating it), then re-validate.
@@ -341,8 +343,6 @@ async def test_repair(
         sandbox_xml = serialize(new_root)
         sandbox_result = pipeline.analyze_iso(sandbox_xml.encode("utf-8"), registry)
         after_findings = sandbox_result.rule_findings
-        raw_before = (inv.deterministic_findings or {}).get("rule_findings")
-        before_findings = raw_before if isinstance(raw_before, list) else []
         # A sandbox repair is only "validated" when it resolves ALL original findings. Any
         # original finding still present (e.g. a field with no supporting evidence, so no
         # change could be proposed) forces human review.
@@ -385,6 +385,10 @@ async def test_repair(
         status = "REVIEW_REQUIRED"
     elif rejected:
         status = "REJECTED"
+    elif before_findings:
+        # Nothing was proposed/applied but the original message still has unresolved findings
+        # (e.g. missing evidence) -> a human must review.
+        status = "REVIEW_REQUIRED"
     else:
         status = "NO_CHANGES"
 

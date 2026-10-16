@@ -930,6 +930,7 @@ export interface AgentResult {
 }
 
 export interface InvestigationDetail extends InvestigationSummary {
+  source?: string;
   input_hash: string;
   profile_version?: string | null;
   evolus_execution_id?: string | null;
@@ -976,4 +977,15 @@ export function testRepair(investigationId: string) {
     `/api/v1/investigations/${encodeURIComponent(investigationId)}/repair/test`,
     { method: 'POST' },
   );
+}
+
+export function uploadInvestigation(
+  xml: string,
+  evidence: Record<string, unknown> | null,
+  startWorkflow = true,
+) {
+  return apiJson<InvestigationDetail>('/api/v1/investigations/upload', {
+    method: 'POST',
+    body: JSON.stringify({ xml, evidence, start_workflow: startWorkflow }),
+  });
 }

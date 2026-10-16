@@ -24,8 +24,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from paymentops_api.auth import AuthenticatedClient, get_api_client, get_db
 from paymentops_api.db.models import Investigation
-from paymentops_api.evolus.demo_cases import get_demo_case, list_demo_cases
+from paymentops_api.evolus.demo_cases import list_demo_cases
 from paymentops_api.services import investigation_service, repair_service
+from paymentops_api.services.case_payload import synthetic_input_preview
 
 router = APIRouter(tags=["investigations"])
 
@@ -41,6 +42,14 @@ class StartInvestigationRequest(BaseModel):
         default=True,
         description="Start the Evolus workflow. Set false to prepare deterministically only.",
     )
+
+
+class UploadInvestigationRequest(BaseModel):
+    xml: str = Field(..., description="ISO 20022 XML content (pacs.008.001.08, synthetic only)")
+    evidence: dict[str, object] | None = Field(
+        default=None, description="Optional supporting-evidence JSON (see docs/PHASE2C_UPLOAD.md)"
+    )
+    start_workflow: bool = Field(default=True)
 
 
 class ValidateCaseRequest(BaseModel):
@@ -139,6 +148,38 @@ async def get_investigation(
     return _detail(inv)
 
 
+@router.post("/api/v1/investigations/upload", status_code=status.HTTP_201_CREATED)
+async def upload_investigation(
+    body: UploadInvestigationRequest,
+    request: Request,
+    client: AuthenticatedClient = Depends(get_api_client),
+    session: AsyncSession = Depends(get_db),
+) -> dict[str, object]:
+    """Create an investigation from an uploaded SYNTHETIC pacs.008 payload.
+
+    Content-based upload (the client reads the file and sends its text), consistent with the
+    existing ``/analyze`` pattern. Synthetic data only; filenames are never used as storage paths.
+    """
+    try:
+        inv = await investigation_service.start_uploaded_investigation(
+            session,
+            client.organization_id,
+            body.xml.encode("utf-8"),
+            body.evidence,
+            settings=request.app.state.settings,
+            pipeline=request.app.state.analysis_pipeline,
+            registry=request.app.state.iso_registry,
+            evolus_client=request.app.state.evolus_client,
+            start_workflow=body.start_workflow,
+        )
+    except investigation_service.UploadValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=f"invalid evidence: {exc}") from None
+    investigation_service.record_start_metric(inv.status)
+    return _detail(inv)
+
+
 @router.post("/api/v1/investigations/{investigation_id}/repair/test")
 async def test_repair(
     investigation_id: str,
@@ -217,14 +258,11 @@ def _summary(inv: Investigation) -> dict[str, object]:
 
 
 def _detail(inv: Investigation) -> dict[str, object]:
-    input_preview = None
-    try:
-        input_preview = get_demo_case(inv.demo_case_key).load().decode("utf-8", errors="replace")
-    except KeyError:
-        input_preview = None
     return {
         **_summary(inv),
+        "source": inv.source,
         "input_hash": inv.input_hash,
+        "evidence_hash": inv.evidence_hash,
         "profile_version": inv.profile_version,
         "evolus_execution_id": inv.evolus_execution_id,
         "evolus_trace_id": inv.evolus_trace_id,
@@ -233,6 +271,6 @@ def _detail(inv: Investigation) -> dict[str, object]:
         "answer_text": inv.answer_text,
         "supporting_record": inv.supporting_record,
         "repair": inv.repair,
-        "synthetic_input": input_preview,
+        "synthetic_input": synthetic_input_preview(inv),
         "disclaimer": _DISCLAIMER,
     }

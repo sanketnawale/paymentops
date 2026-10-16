@@ -32,11 +32,19 @@ class Investigation(Base):
     organization_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("organizations.id"), nullable=False, index=True
     )
-    # Server-side reference to a bundled synthetic demo case (never a client-supplied path).
+    # Server-side reference to a bundled synthetic demo case (never a client-supplied path),
+    # or "upload" for a user-uploaded synthetic case (payload stored below).
     demo_case_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    # "demo" (bundled fixture) or "upload" (uploaded synthetic payload).
+    source: Mapped[str] = mapped_column(String(16), nullable=False, default="demo")
     message_version: Mapped[str] = mapped_column(String(64), nullable=False)
     # SHA-256 of the synthetic payload (immutable input identity).
     input_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    # Uploaded synthetic payload (immutable evidence) + validated evidence record. Only set
+    # for source="upload"; never real payment data (synthetic-only journey).
+    payload_xml: Mapped[str | None] = mapped_column(Text, nullable=True)
+    payload_evidence: Mapped[dict[str, object] | None] = mapped_column(JSONB, nullable=True)
+    evidence_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     ruleset_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
     engine_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
     profile_version: Mapped[str | None] = mapped_column(String(64), nullable=True)

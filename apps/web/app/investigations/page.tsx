@@ -19,10 +19,29 @@ import {
   listDemoCases,
   listInvestigations,
   startInvestigation,
+  uploadInvestigation,
   type DemoCase,
   type InvestigationSummary,
 } from '@/lib/api';
 import { badgeClass, formatDateTime, labelize } from '@/lib/status';
+
+const MAX_XML_BYTES = 262_144;
+
+function readFile(
+  file: File | undefined,
+  onText: (text: string, name: string) => void,
+  onError: (message: string) => void,
+) {
+  if (!file) return;
+  if (file.size > MAX_XML_BYTES) {
+    onError('The selected file exceeds the 256 KiB limit.');
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = () => onText(String(reader.result ?? ''), file.name);
+  reader.onerror = () => onError('The file could not be read.');
+  reader.readAsText(file);
+}
 
 export default function InvestigationsPage() {
   const router = useRouter();
@@ -32,6 +51,14 @@ export default function InvestigationsPage() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
+
+  // Upload state (synthetic-only journey).
+  const [xmlText, setXmlText] = useState('');
+  const [xmlName, setXmlName] = useState('');
+  const [evidenceText, setEvidenceText] = useState('');
+  const [evidenceName, setEvidenceName] = useState('');
+  const [uploadBusy, setUploadBusy] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -67,6 +94,31 @@ export default function InvestigationsPage() {
     }
   };
 
+  const upload = async () => {
+    setUploadError(null);
+    if (!xmlText.trim()) {
+      setUploadError('Select an ISO 20022 pacs.008 XML file.');
+      return;
+    }
+    let evidence: Record<string, unknown> | null = null;
+    if (evidenceText.trim()) {
+      try {
+        evidence = JSON.parse(evidenceText) as Record<string, unknown>;
+      } catch {
+        setUploadError('The supporting-evidence file is not valid JSON.');
+        return;
+      }
+    }
+    setUploadBusy(true);
+    try {
+      const investigation = await uploadInvestigation(xmlText, evidence, true);
+      router.push(`/investigations/${investigation.investigation_id}`);
+    } catch (e) {
+      setUploadError(e instanceof Error ? e.message : 'Upload failed');
+      setUploadBusy(false);
+    }
+  };
+
   const current = demoCases.find((c) => c.key === selected);
 
   return (
@@ -74,50 +126,132 @@ export default function InvestigationsPage() {
       <PageHeader
         eyebrow="AI investigation"
         title="Payment investigations"
-        description="Start an evidence-backed investigation of a synthetic ISO 20022 case using the PaymentOps Investigator."
+        description="Investigate a synthetic ISO 20022 case (sample or your own upload) using the PaymentOps Investigator."
       />
 
       <Notice tone="accent">
         <ShieldCheck size={15} aria-hidden="true" />
         <span>
-          <strong>Investigation only.</strong> Deterministic validation is authoritative. The agent
-          interprets the engine&apos;s findings; it does not authorize, execute, or settle payments.
+          <strong>Synthetic data only.</strong> Upload a synthetic pacs.008.001.08 file. Deterministic
+          validation is authoritative; the agent interprets. Nothing is authorized, executed, or
+          settled, and uploaded files are never used as storage paths.
         </span>
       </Notice>
 
       {error ? <ErrorState message={error} onRetry={load} /> : null}
 
       <div className="grid-sidebar">
-        <Card>
-          <CardHead title="Start an investigation" sub="Synthetic demo cases only" />
-          <div className="card-body">
-            <label>
-              <span className="field-label">Synthetic demo case</span>
-              <select
-                value={selected}
-                onChange={(e) => setSelected(e.target.value)}
-                aria-label="Synthetic demo case"
-              >
-                <option value="">— select —</option>
-                {demoCases.map((c) => (
-                  <option key={c.key} value={c.key}>
-                    {c.name} ({c.message_version})
-                  </option>
-                ))}
-              </select>
-            </label>
-            {current ? (
+        <div className="stack">
+          <Card>
+            <CardHead title="Upload synthetic payment" sub="One pacs.008.001.08 XML + optional evidence JSON" />
+            <div className="card-body">
+              <label>
+                <span className="field-label">ISO 20022 XML file (required)</span>
+                <input
+                  type="file"
+                  accept=".xml,application/xml,text/xml"
+                  aria-label="ISO 20022 XML file"
+                  onChange={(e) =>
+                    readFile(
+                      e.target.files?.[0],
+                      (text, name) => {
+                        setXmlText(text);
+                        setXmlName(name);
+                      },
+                      setUploadError,
+                    )
+                  }
+                />
+              </label>
+              {xmlName ? <p className="muted small" style={{ marginTop: '0.25rem' }}>Selected: <span className="mono">{xmlName}</span></p> : null}
+
+              <label style={{ display: 'block', marginTop: '0.5rem' }}>
+                <span className="field-label">Supporting-evidence JSON (optional)</span>
+                <input
+                  type="file"
+                  accept=".json,application/json"
+                  aria-label="Supporting-evidence JSON file"
+                  onChange={(e) =>
+                    readFile(
+                      e.target.files?.[0],
+                      (text, name) => {
+                        setEvidenceText(text);
+                        setEvidenceName(name);
+                      },
+                      setUploadError,
+                    )
+                  }
+                />
+              </label>
+              {evidenceName ? <p className="muted small" style={{ marginTop: '0.25rem' }}>Selected: <span className="mono">{evidenceName}</span></p> : null}
               <p className="muted small" style={{ marginTop: '0.5rem' }}>
-                {current.description}
-                <br />
-                <span className="mono">origin: {current.origin}</span>
+                Without evidence the investigation still runs, but unsupported repairs are rejected.
+                See the evidence schema in the sample bundle README.
               </p>
-            ) : null}
-            <Button onClick={start} disabled={busy || loading} style={{ marginTop: '0.75rem' }}>
-              <Brain size={14} /> {busy ? 'Starting…' : 'Investigate'}
-            </Button>
-          </div>
-        </Card>
+
+              {uploadError ? (
+                <p className="small" style={{ color: 'var(--cn-danger)' }} role="alert">{uploadError}</p>
+              ) : null}
+
+              <Button onClick={upload} disabled={uploadBusy} style={{ marginTop: '0.75rem' }}>
+                <Brain size={14} /> {uploadBusy ? 'Starting…' : 'Start investigation'}
+              </Button>
+
+              <p className="field-label" style={{ marginTop: '0.75rem' }}>Sample bundles (download)</p>
+              <ul className="status-list">
+                <li>
+                  <span>
+                    <strong>Complete evidence</strong> — debtor + creditor towns
+                    <br />
+                    <a href="/examples/uploads/complete/pacs008_missing_town.xml" download className="mono small">pacs008_missing_town.xml</a>
+                    {' · '}
+                    <a href="/examples/uploads/complete/evidence.json" download className="mono small">evidence.json</a>
+                  </span>
+                </li>
+                <li>
+                  <span>
+                    <strong>Incomplete evidence</strong> — debtor town only (expert review)
+                    <br />
+                    <a href="/examples/uploads/incomplete/pacs008_missing_town.xml" download className="mono small">pacs008_missing_town.xml</a>
+                    {' · '}
+                    <a href="/examples/uploads/incomplete/evidence.json" download className="mono small">evidence.json</a>
+                  </span>
+                </li>
+              </ul>
+            </div>
+          </Card>
+
+          <Card>
+            <CardHead title="Try a sample" sub="Bundled synthetic demo cases" />
+            <div className="card-body">
+              <label>
+                <span className="field-label">Synthetic demo case</span>
+                <select
+                  value={selected}
+                  onChange={(e) => setSelected(e.target.value)}
+                  aria-label="Synthetic demo case"
+                >
+                  <option value="">— select —</option>
+                  {demoCases.map((c) => (
+                    <option key={c.key} value={c.key}>
+                      {c.name} ({c.message_version})
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {current ? (
+                <p className="muted small" style={{ marginTop: '0.5rem' }}>
+                  {current.description}
+                  <br />
+                  <span className="mono">origin: {current.origin}</span>
+                </p>
+              ) : null}
+              <Button onClick={start} disabled={busy || loading} style={{ marginTop: '0.75rem' }}>
+                <Brain size={14} /> {busy ? 'Starting…' : 'Investigate'}
+              </Button>
+            </div>
+          </Card>
+        </div>
 
         <Card>
           <CardHead title="Recent investigations" sub="Tenant-scoped" />
@@ -127,7 +261,7 @@ export default function InvestigationsPage() {
             ) : investigations.length === 0 ? (
               <EmptyState
                 title="No investigations yet"
-                message="Start one from a synthetic demo case on the left."
+                message="Upload a synthetic payment or try a sample on the left."
               />
             ) : (
               <ul className="status-list">

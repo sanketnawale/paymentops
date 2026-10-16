@@ -14,7 +14,9 @@ The engine is authoritative for validation; the agent only interprets.
 
 from __future__ import annotations
 
+import base64
 import hashlib
+import json
 import re
 import uuid
 from datetime import UTC, datetime
@@ -28,7 +30,11 @@ from paymentops_api.evolus.client import (
     EvolusRateLimitedError,
     WorkflowExecution,
 )
-from paymentops_api.evolus.demo_cases import DemoCase, get_demo_case
+from paymentops_api.evolus.demo_cases import (
+    SupportingRecord,
+    build_supporting_record,
+    get_demo_case,
+)
 from paymentops_api.logging import get_logger
 from paymentops_api.observability import (
     evolus_workflow_runs_total,
@@ -36,18 +42,38 @@ from paymentops_api.observability import (
     tool_validations_total,
 )
 from paymentops_api.services import repair_service
+from paymentops_api.services.case_payload import (
+    case_origin,
+)
+from paymentops_api.services.case_payload import (
+    load_payload as _load_payload,
+)
+from paymentops_api.services.case_payload import (
+    load_record as _load_record,
+)
 from paymentops_api.settings import Settings
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from analysis.models import IsoAnalysisResult
 from analysis.pipeline import AnalysisPipeline
+from iso_engine.pacs008.adapter import map_pacs008_to_canonical
+from iso_engine.pacs008.identifier import identify_pacs008
 from iso_engine.registry import IsoMessageRegistry
+from iso_engine.xml_security import secure_parse
 from rules_engine import RULESET_VERSION
 
 logger = get_logger("paymentops.investigation")
 
 _RULE_ID_RE = re.compile(r"\b(?:ISO|SEM|ADR)-\d{3}\b")
+
+# Uploaded-synthetic-case limits (defensive; synthetic-only journey).
+UPLOAD_MAX_XML_BYTES = 262_144  # 256 KiB
+UPLOAD_MAX_EVIDENCE_BYTES = 65_536  # 64 KiB
+
+
+class UploadValidationError(Exception):
+    """Raised when an uploaded synthetic case fails validation (safe to surface)."""
 
 
 # --------------------------------------------------------------------------- deterministic
@@ -86,14 +112,16 @@ def deterministic_record(result: IsoAnalysisResult) -> dict[str, Any]:
 # --------------------------------------------------------------------------- workflow input
 
 
-def build_investigation_prompt(demo: DemoCase, case_ref: str) -> str:
+def build_investigation_prompt(
+    record: SupportingRecord | None, case_ref: str, message_version: str
+) -> str:
     """Build the workflow input text. Contains no secrets and no raw payload."""
-    evidence = repair_service.build_evidence_block(demo.supporting_record)
+    evidence = repair_service.build_evidence_block(record)
     contract = repair_service.build_proposal_contract()
     return (
-        "Investigate the synthetic PaymentOps demo case.\n"
+        "Investigate the synthetic PaymentOps case.\n"
         f"case_ref: {case_ref}\n"
-        f"message_version: {demo.message_version}\n"
+        f"message_version: {message_version}\n"
         f"{evidence}\n"
         "Required steps:\n"
         "1. Consult the 'PaymentOps Rules' knowledge library for applicable rule identifiers.\n"
@@ -105,7 +133,7 @@ def build_investigation_prompt(demo: DemoCase, case_ref: str) -> str:
         f"{contract}"
         "5. State which evidence is unavailable and the recommended human next step.\n"
         "Do NOT treat structural validity as proof of payment safety, authorization, settlement, "
-        "or account ownership. This is a synthetic demo case; no payment is executed.\n"
+        "or account ownership. This is a synthetic case; no payment is executed.\n"
     )
 
 
@@ -115,7 +143,8 @@ def build_investigation_prompt(demo: DemoCase, case_ref: str) -> str:
 def build_tool_validation_payload(
     *,
     case_ref: str,
-    demo: DemoCase,
+    case_key: str,
+    origin: str,
     result: IsoAnalysisResult,
     input_sha256: str,
     profile_version: str | None,
@@ -129,8 +158,8 @@ def build_tool_validation_payload(
         "input": {
             "identity_sha256": input_sha256,
             "message_version": result.message_version,
-            "demo_case_key": demo.key,
-            "demo_case_origin": demo.origin,
+            "case_key": case_key,
+            "case_origin": origin,
             "input_unchanged": input_unchanged,
         },
         "profile": {
@@ -211,14 +240,94 @@ async def start_investigation(
         await session.commit()
         return investigation
 
-    await _start_evolus(session, investigation, demo, settings=settings, client=evolus_client)
+    await _start_evolus(session, investigation, settings=settings, client=evolus_client)
+    return investigation
+
+
+async def start_uploaded_investigation(
+    session: AsyncSession,
+    org: str,
+    xml_bytes: bytes,
+    evidence_data: dict[str, Any] | None,
+    *,
+    settings: Settings,
+    pipeline: AnalysisPipeline,
+    registry: IsoMessageRegistry,
+    evolus_client: EvolusClient,
+    start_workflow: bool = True,
+) -> Investigation:
+    """Create an investigation from an uploaded synthetic pacs.008 payload.
+
+    Enforces: size limit, safe XML parsing (DTD/entities/network disabled), pacs.008.001.08
+    only, single transaction, and an optional validated evidence record. Uploaded bytes are
+    stored (base64) as immutable evidence and are never treated as a filesystem path.
+    """
+    if len(xml_bytes) > UPLOAD_MAX_XML_BYTES:
+        raise UploadValidationError(f"XML exceeds the {UPLOAD_MAX_XML_BYTES}-byte limit")
+    if (
+        evidence_data is not None
+        and len(json.dumps(evidence_data).encode("utf-8")) > UPLOAD_MAX_EVIDENCE_BYTES
+    ):
+        raise UploadValidationError(f"Evidence exceeds the {UPLOAD_MAX_EVIDENCE_BYTES}-byte limit")
+
+    doc = secure_parse(xml_bytes, max_bytes=UPLOAD_MAX_XML_BYTES)  # XmlError on malformed/DTD
+    version = identify_pacs008(doc.root)  # UnsupportedMessageTypeError if not pacs.008.001.08
+    message = map_pacs008_to_canonical(doc.root, version)
+    if len(message.transactions) != 1:
+        raise UploadValidationError(
+            "Only single-transaction pacs.008 messages are supported for the repair journey."
+        )
+
+    record = None
+    if evidence_data is not None:
+        record = build_supporting_record(evidence_data)  # ValueError on invalid schema
+
+    result = run_deterministic_validation(xml_bytes, pipeline=pipeline, registry=registry)
+    input_sha256 = payload_sha256(xml_bytes)
+    evidence_hash = (
+        hashlib.sha256(
+            json.dumps(evidence_data, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
+        if evidence_data is not None
+        else None
+    )
+
+    investigation = Investigation(
+        investigation_id=f"inv-{uuid.uuid4().hex[:12]}",
+        organization_id=org,
+        demo_case_key="upload",
+        source="upload",
+        message_version=version.identifier,
+        input_hash=input_sha256,
+        payload_xml=base64.b64encode(xml_bytes).decode("ascii"),
+        payload_evidence=evidence_data,
+        evidence_hash=evidence_hash,
+        ruleset_version=RULESET_VERSION,
+        engine_version=result.engine_version,
+        profile_version=None,
+        status="PENDING",
+        deterministic_findings=deterministic_record(result),
+        supporting_record=record.to_dict() if record is not None else None,
+        created_at=datetime.now(UTC),
+    )
+    session.add(investigation)
+    await session.commit()
+    await session.refresh(investigation)
+
+    if not start_workflow:
+        investigation.status = "PREPARED"
+        investigation.agent_status = "NOT_STARTED"
+        investigation.updated_at = datetime.now(UTC)
+        await session.commit()
+        return investigation
+
+    await _start_evolus(session, investigation, settings=settings, client=evolus_client)
     return investigation
 
 
 async def _start_evolus(
     session: AsyncSession,
     inv: Investigation,
-    demo: DemoCase,
     *,
     settings: Settings,
     client: EvolusClient,
@@ -234,7 +343,9 @@ async def _start_evolus(
         await session.commit()
         return
 
-    prompt = build_investigation_prompt(demo, inv.investigation_id)
+    prompt = build_investigation_prompt(
+        _load_record(inv), inv.investigation_id, inv.message_version
+    )
     try:
         run = await client.start_workflow(prompt)
     except EvolusNotConfiguredError as exc:
@@ -486,18 +597,17 @@ async def validate_case_for_tool(
 ) -> dict[str, Any]:
     """Validate a synthetic case with the real engine, keyed by a server-issued case_ref."""
     inv = await resolve_investigation_for_tool(session, settings, case_ref)
-    demo = get_demo_case(inv.demo_case_key)
-    payload = demo.load()
+    payload = _load_payload(inv)
     input_sha256 = payload_sha256(payload)
     input_unchanged = input_sha256 == inv.input_hash
     if not input_unchanged:
-        # Bundled fixtures are immutable; a mismatch is surfaced, never hidden.
         logger.warning("investigation_input_hash_mismatch", case_ref=inv.investigation_id)
 
     result = run_deterministic_validation(payload, pipeline=pipeline, registry=registry)
     payload_out = build_tool_validation_payload(
         case_ref=inv.investigation_id,
-        demo=demo,
+        case_key=inv.demo_case_key,
+        origin=case_origin(inv),
         result=result,
         input_sha256=input_sha256,
         profile_version=inv.profile_version,

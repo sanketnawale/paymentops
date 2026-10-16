@@ -193,3 +193,85 @@ def get_demo_case(key: str) -> DemoCase:
         return _CASES[key]
     except KeyError:
         raise KeyError(key) from None
+
+
+def build_supporting_record(
+    data: dict[str, object], *, default_record_id: str = "SR-UPLOAD"
+) -> SupportingRecord:
+    """Validate and build a :class:`SupportingRecord` from uploaded evidence JSON.
+
+    Schema (documented in ``examples/uploads/README.md``)::
+
+        {
+          "record_id": "SR-1", "label": "...", "source": "...",
+          "entries": [{"ref": "...", "party": "Dbtr|Cdtr|DbtrAgt|CdtrAgt",
+                       "field": "TwnNm|Ctry", "value": "...", "note": ""}],
+          "gaps": ["..."], "contradictions": ["..."]
+        }
+
+    Raises ``ValueError`` on any schema/allowlist violation. Party/field linkage is enforced.
+    """
+    if not isinstance(data, dict):
+        raise ValueError("evidence must be a JSON object")
+    raw_entries = data.get("entries")
+    if not isinstance(raw_entries, list):
+        raise ValueError("evidence.entries must be a list")
+
+    entries: list[EvidenceEntry] = []
+    seen: set[str] = set()
+    for index, item in enumerate(raw_entries):
+        if not isinstance(item, dict):
+            raise ValueError(f"evidence.entries[{index}] must be an object")
+        ref = str(item.get("ref") or "").strip()
+        party = str(item.get("party") or "").strip()
+        field = str(item.get("field") or "").strip()
+        value = str(item.get("value") or "").strip()
+        if not ref or not value:
+            raise ValueError(f"evidence.entries[{index}] requires non-empty ref and value")
+        if ref in seen:
+            raise ValueError(f"duplicate evidence ref: {ref}")
+        if party not in ALLOWED_REPAIR_PARTIES:
+            raise ValueError(f"evidence.entries[{index}].party is not allowlisted")
+        if field not in ALLOWED_REPAIR_FIELDS:
+            raise ValueError(f"evidence.entries[{index}].field is not allowlisted")
+        seen.add(ref)
+        entries.append(
+            EvidenceEntry(
+                ref=ref,
+                party=party,
+                field=field,
+                value=value,
+                note=str(item.get("note") or ""),
+            )
+        )
+
+    raw_gaps = data.get("gaps")
+    raw_contradictions = data.get("contradictions")
+    gaps = (
+        [str(g).strip() for g in raw_gaps if str(g).strip()] if isinstance(raw_gaps, list) else []
+    )
+    contradictions = (
+        [str(c).strip() for c in raw_contradictions if str(c).strip()]
+        if isinstance(raw_contradictions, list)
+        else []
+    )
+    return SupportingRecord(
+        record_id=str(data.get("record_id") or default_record_id),
+        label=str(data.get("label") or "Uploaded evidence record"),
+        source=str(data.get("source") or "user-uploaded evidence"),
+        entries=tuple(entries),
+        gaps=tuple(gaps),
+        contradictions=tuple(contradictions),
+    )
+
+
+def record_from_stored(data: dict[str, object] | None) -> SupportingRecord | None:
+    """Rebuild a SupportingRecord from the validated dict stored on an investigation."""
+    if not data:
+        return None
+    try:
+        return build_supporting_record(
+            data, default_record_id=str(data.get("record_id") or "SR-UPLOAD")
+        )
+    except ValueError:
+        return None

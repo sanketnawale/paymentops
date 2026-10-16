@@ -1,0 +1,16 @@
+{
+  "record_id": "SR-UP-2",
+  "label": "Synthetic account master record (incomplete)",
+  "source": "uploaded synthetic evidence",
+  "entries": [
+    {
+      "ref": "SR-UP-2:debtor-town",
+      "party": "Dbtr",
+      "field": "TwnNm",
+      "value": "Milano",
+      "note": "Registered town of the debtor account holder"
+    }
+  ],
+  "gaps": ["No creditor town is present in the supporting record."],
+  "contradictions": ["No creditor locality evidence; the creditor town must not be inferred."]
+}

@@ -24,12 +24,10 @@ from uuid import uuid4
 
 from paymentops_api.db.models import AuditEvent, Investigation
 from paymentops_api.evolus.client import WorkflowExecution
-from paymentops_api.evolus.demo_cases import (
-    SupportingRecord,
-    get_demo_case,
-)
+from paymentops_api.evolus.demo_cases import SupportingRecord
 from paymentops_api.logging import get_logger
 from paymentops_api.observability import repair_tests_total
+from paymentops_api.services.case_payload import load_payload, load_record
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from analysis.pipeline import AnalysisPipeline
@@ -292,8 +290,7 @@ async def test_repair(
     registry: IsoMessageRegistry,
 ) -> Investigation:
     """Apply allowlisted changes to a sandbox copy and re-validate with the real engine."""
-    demo = get_demo_case(inv.demo_case_key)
-    record = demo.supporting_record
+    record = load_record(inv)
     repair: dict[str, Any] = dict(inv.repair or {})
     proposal: dict[str, Any] = dict(repair.get("proposal") or {})
     changes = proposal.get("changes") or []
@@ -301,7 +298,7 @@ async def test_repair(
     allowed, rejected = validate_proposal(changes, record)
 
     # Resolve real XML paths from the canonical model (the agent never supplies paths).
-    original_root = secure_parse(demo.load()).root
+    original_root = secure_parse(load_payload(inv)).root
     version = identify_pacs008(original_root)
     message = map_pacs008_to_canonical(original_root, version)
     if len(message.transactions) != 1:

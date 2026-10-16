@@ -79,7 +79,8 @@ def test_tool_payload_separates_validation_from_interpretation(pipeline, registr
     input_sha = svc.payload_sha256(demo.load())
     payload = svc.build_tool_validation_payload(
         case_ref="inv-test",
-        demo=demo,
+        case_key=demo.key,
+        origin=demo.origin,
         result=result,
         input_sha256=input_sha,
         profile_version=None,
@@ -88,6 +89,7 @@ def test_tool_payload_separates_validation_from_interpretation(pipeline, registr
     assert payload["case_ref"] == "inv-test"
     assert payload["synthetic"] is True
     assert payload["input"]["identity_sha256"] == input_sha
+    assert payload["input"]["case_key"] == demo.key
     assert payload["input"]["input_unchanged"] is True
     assert payload["validation"]["status"] == "valid"
     assert any(f["rule_id"] == "ADR-001" for f in payload["validation"]["findings"])

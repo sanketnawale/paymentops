@@ -1,0 +1,23 @@
+{
+  "record_id": "SR-UP-1",
+  "label": "Synthetic account master record (complete)",
+  "source": "uploaded synthetic evidence",
+  "entries": [
+    {
+      "ref": "SR-UP-1:debtor-town",
+      "party": "Dbtr",
+      "field": "TwnNm",
+      "value": "Milano",
+      "note": "Registered town of the debtor account holder"
+    },
+    {
+      "ref": "SR-UP-1:creditor-town",
+      "party": "Cdtr",
+      "field": "TwnNm",
+      "value": "Roma",
+      "note": "Registered town of the creditor"
+    }
+  ],
+  "gaps": [],
+  "contradictions": []
+}

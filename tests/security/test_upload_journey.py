@@ -104,6 +104,16 @@ async def test_changing_xml_changes_hash_and_findings():
         assert "ADR-001" not in {
             f["rule_id"] for f in (valid.deterministic_findings or {}).get("rule_findings") or []
         }
+        # Changing only the MsgId changes the original hash but not the intended findings.
+        renamed = _MISSING_TOWN.replace(b"MSGID-MISSING-TOWN", b"MSGID-MISSING-TOWN-2")
+        renamed_again = await _upload(session, org, renamed, None)
+        assert renamed_again.input_hash != missing.input_hash
+        assert {
+            f["rule_id"]
+            for f in (renamed_again.deterministic_findings or {}).get("rule_findings") or []
+        } == {
+            f["rule_id"] for f in (missing.deterministic_findings or {}).get("rule_findings") or []
+        }
     await engine.dispose()
 
 

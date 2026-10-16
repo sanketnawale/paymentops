@@ -2,51 +2,24 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
-import {
-  AlertTriangle,
-  CheckCircle2,
-  ClipboardCheck,
-  Database,
-  FileSearch,
-  Scale,
-  ShieldCheck,
-  Zap,
-} from 'lucide-react';
+import { Activity, AlertTriangle, Brain, CheckCircle2, ClipboardCheck, FlaskConical, ShieldCheck, Upload } from 'lucide-react';
 import AppShell from '@/components/AppShell';
-import { Button, Card, CardHead, EmptyState, ErrorState, Metric, PageHeader, Skeleton, TableWrap } from '@/components/ui';
-import {
-  getDashboard,
-  listBatches,
-  listCases,
-  listReconciliations,
-  type BatchJobSummary,
-  type CaseSummary,
-  type DashboardMetrics,
-  type ReconciliationRun,
-} from '@/lib/api';
-import { badgeClass, labelize } from '@/lib/status';
+import { Button, Card, CardHead, EmptyState, ErrorState, Metric, Notice, PageHeader, Skeleton, TableWrap } from '@/components/ui';
+import { getDashboard, listInvestigations, type DashboardMetrics, type InvestigationSummary } from '@/lib/api';
+import { badgeClass, formatDateTime, labelize } from '@/lib/status';
 
 export default function DashboardPage() {
   const [metrics, setMetrics] = useState<DashboardMetrics | null>(null);
-  const [cases, setCases] = useState<CaseSummary[]>([]);
-  const [batches, setBatches] = useState<BatchJobSummary[]>([]);
-  const [runs, setRuns] = useState<ReconciliationRun[]>([]);
+  const [investigations, setInvestigations] = useState<InvestigationSummary[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [m, c, b, r] = await Promise.all([
-        getDashboard(),
-        listCases(),
-        listBatches(),
-        listReconciliations().catch(() => []),
-      ]);
+      const [m, inv] = await Promise.all([getDashboard(), listInvestigations()]);
       setMetrics(m);
-      setCases(c);
-      setBatches(b);
-      setRuns(r);
+      setInvestigations(inv);
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Unable to load dashboard');
@@ -59,39 +32,35 @@ export default function DashboardPage() {
     load();
   }, [load]);
 
-  const matchTotals = runs.reduce(
-    (acc, r) => {
-      acc.matched += r.matched;
-      acc.possible += r.possible_match;
-      acc.review += r.review_required;
-      acc.unmatched += r.unmatched;
-      acc.duplicate += r.duplicate_candidate;
-      return acc;
-    },
-    { matched: 0, possible: 0, review: 0, unmatched: 0, duplicate: 0 },
-  );
-
-  const readinessTotal =
-    (metrics?.ready ?? 0) + (metrics?.repairable ?? 0) + (metrics?.review_required ?? 0) + (metrics?.unresolved ?? 0);
-  const pct = (n: number) => (readinessTotal ? Math.round((n / readinessTotal) * 100) : 0);
-
-  const topFindings = Object.entries(metrics?.top_findings ?? {}).sort((a, b) => b[1] - a[1]).slice(0, 6);
+  const inv = metrics?.investigations;
+  const business =
+    (metrics?.analyzed ?? 0) + (metrics?.ready ?? 0) + (metrics?.repairable ?? 0) +
+    (metrics?.review_required ?? 0) + (metrics?.unresolved ?? 0) + (metrics?.open_cases ?? 0);
 
   return (
     <AppShell>
       <PageHeader
-        eyebrow="Operations overview"
-        title="Payment-data readiness"
-        description="A control surface for what entered the system, what is explainable, and where an operator is needed."
+        eyebrow="AI investigation (hackathon)"
+        title="Payment investigations overview"
+        description="Evidence-backed investigation of synthetic ISO 20022 cases: upload or sample → Evolus/AMD agent → PaymentOps engine → sandbox repair test."
         actions={
           <>
             <Button variant="ghost" onClick={load} disabled={loading}>Refresh</Button>
-            <Link href="/analyze" className="btn">
-              <FileSearch size={14} /> Analyze payment
-            </Link>
+            <Link href="/investigations" className="btn btn-ghost"><Brain size={14} /> Try a sample</Link>
+            <Link href="/investigations" className="btn"><Upload size={14} /> Upload synthetic payment</Link>
           </>
         }
       />
+
+      <Notice tone="accent">
+        <ShieldCheck size={15} aria-hidden="true" />
+        <span>
+          Synthetic data only. <strong>Workflow completion</strong> (the agent finished),{' '}
+          <strong>sandbox validation</strong> (a proposed change passed deterministic re-validation), and{' '}
+          <strong>human approval</strong> are three different things. Sandbox copies are <strong>not</strong>{' '}
+          executed payments, and nothing is authorized, executed, or settled.
+        </span>
+      </Notice>
 
       {error ? <ErrorState message={error} onRetry={load} /> : null}
 
@@ -100,112 +69,76 @@ export default function DashboardPage() {
       ) : metrics ? (
         <>
           <div className="metric-grid">
-            <Metric label="Payments analyzed" value={metrics.analyzed.toLocaleString()} detail="Total analyzed records" icon={<FileSearch size={17} />} />
-            <Metric label="Ready" value={metrics.ready.toLocaleString()} detail={`${pct(metrics.ready)}% of analyzed`} tone="ok" icon={<CheckCircle2 size={17} />} />
-            <Metric label="Repairable" value={metrics.repairable.toLocaleString()} detail="Candidate available" tone="warn" icon={<Zap size={17} />} />
-            <Metric label="Review required" value={metrics.review_required.toLocaleString()} detail="Operator needed" tone="warn" icon={<ClipboardCheck size={17} />} />
-            <Metric label="Unresolved" value={metrics.unresolved.toLocaleString()} detail="No candidate found" tone="danger" icon={<AlertTriangle size={17} />} />
-            <Metric label="Matched" value={matchTotals.matched.toLocaleString()} detail="Matching engine" tone="ok" icon={<Scale size={17} />} />
-            <Metric label="Possible matches" value={matchTotals.possible.toLocaleString()} detail="Review suggested" tone="warn" icon={<Scale size={17} />} />
-            <Metric label="Account reconciled" value={(metrics.account_reconciled ?? 0).toLocaleString()} detail={`${metrics.reconciliation_rate ?? 0}% of account entries`} tone="ok" icon={<ShieldCheck size={17} />} />
-            <Metric label="Account exceptions" value={((metrics.account_mismatches ?? 0) + (metrics.missing_account_event ?? 0) + (metrics.duplicate_entries ?? 0) + (metrics.unmatched_entries ?? 0)).toLocaleString()} detail="Mismatch / missing / duplicate / unmatched" tone="danger" icon={<AlertTriangle size={17} />} />
-            <Metric label="Open cases" value={metrics.open_cases.toLocaleString()} detail="Requires operator attention" icon={<ClipboardCheck size={17} />} />
-            <Metric label="Running batches" value={metrics.running_batches.toLocaleString()} detail={`${batches.length} total`} icon={<Database size={17} />} />
-          </div>
-
-          <div className="grid-sidebar" style={{ marginTop: '1.25rem' }}>
-            <Card>
-              <CardHead title="Readiness distribution" sub="Record outcomes across analyzed payments" />
-              <div className="card-body">
-                {readinessTotal === 0 ? (
-                  <EmptyState title="No analyzed records yet" message="Analyze a payment or submit a batch to populate readiness." />
-                ) : (
-                  <>
-                    <div style={{ display: 'flex', height: '0.75rem', borderRadius: 999, overflow: 'hidden', marginBottom: '1rem' }}>
-                      <span style={{ width: `${pct(metrics.ready)}%`, background: 'var(--cn-ok)' }} title={`Ready ${metrics.ready}`} />
-                      <span style={{ width: `${pct(metrics.repairable)}%`, background: '#b17a31' }} title={`Repairable ${metrics.repairable}`} />
-                      <span style={{ width: `${pct(metrics.review_required)}%`, background: 'var(--cn-primary)' }} title={`Review ${metrics.review_required}`} />
-                      <span style={{ width: `${pct(metrics.unresolved)}%`, background: 'var(--cn-danger)' }} title={`Unresolved ${metrics.unresolved}`} />
-                    </div>
-                    <ul className="status-list">
-                      {[
-                        ['Ready', metrics.ready, 'badge-ok'],
-                        ['Repairable', metrics.repairable, 'badge-warn'],
-                        ['Review required', metrics.review_required, 'badge-warn'],
-                        ['Unresolved', metrics.unresolved, 'badge-danger'],
-                      ].map(([label, value, cls]) => (
-                        <li key={String(label)}>
-                          <span className="row" style={{ gap: '0.5rem' }}>
-                            <span className={`badge ${cls} badge-plain`} aria-hidden="true" />
-                            {label}
-                          </span>
-                          <span className="mono">{Number(value).toLocaleString()} ({pct(Number(value))}%)</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </>
-                )}
-              </div>
-            </Card>
-
-            <Card>
-              <CardHead title="Top findings" sub="Most frequent rule findings" />
-              <div className="card-body">
-                {topFindings.length === 0 ? (
-                  <EmptyState title="No findings recorded" />
-                ) : (
-                  <ul className="status-list">
-                    {topFindings.map(([rule, count]) => (
-                      <li key={rule}>
-                        <span className="mono">{rule}</span>
-                        <span>{count.toLocaleString()}</span>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            </Card>
+            <Metric label="Investigations" value={(inv?.total ?? 0).toLocaleString()} detail={`${inv?.uploads ?? 0} uploaded · ${inv?.samples ?? 0} samples`} icon={<Brain size={17} />} />
+            <Metric label="Running" value={(inv?.running ?? 0).toLocaleString()} detail="Workflow in progress" tone="warn" icon={<Activity size={17} />} />
+            <Metric label="Completed (workflow)" value={(inv?.completed ?? 0).toLocaleString()} detail="Agent run finished — not a validation result" tone="ok" icon={<CheckCircle2 size={17} />} />
+            <Metric label="Failed" value={(inv?.failed ?? 0).toLocaleString()} detail="Integration/run failure" tone="danger" icon={<AlertTriangle size={17} />} />
+            <Metric label="Sandbox tests" value={(inv?.sandbox_tests ?? 0).toLocaleString()} detail="Proposed repairs tested on a copy" icon={<FlaskConical size={17} />} />
+            <Metric label="Sandbox validated" value={(inv?.sandbox_validated ?? 0).toLocaleString()} detail="Deterministic re-validation passed" tone="ok" icon={<CheckCircle2 size={17} />} />
+            <Metric label="Review required" value={(inv?.review_required ?? 0).toLocaleString()} detail="Unresolved findings / rejected changes" tone="warn" icon={<ClipboardCheck size={17} />} />
           </div>
 
           <Card noPad>
             <CardHead
-              title="Recent payment cases"
-              sub="Latest analyzed records"
-              actions={<Link href="/cases" className="small">View all</Link>}
+              title="Recent investigations"
+              sub="Latest synthetic cases (uploaded and sample)"
+              actions={<Link href="/investigations" className="small">Open investigations</Link>}
             />
             <TableWrap>
               <table className="data">
                 <thead>
                   <tr>
-                    <th>Case</th>
-                    <th>Type</th>
-                    <th>Readiness</th>
+                    <th>Investigation</th>
+                    <th>Input</th>
+                    <th>Workflow</th>
+                    <th>Rule findings</th>
                     <th>Repair</th>
-                    <th>Status</th>
+                    <th>Created</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {cases.slice(0, 6).map((c) => (
-                    <tr key={c.case_id}>
-                      <td><Link href={`/cases/${c.case_id}`} className="mono">{c.case_id}</Link></td>
-                      <td>{c.message_type ?? '—'}</td>
-                      <td><span className={badgeClass(c.address_readiness)}>{labelize(c.address_readiness)}</span></td>
-                      <td>{labelize(c.repair_status)}</td>
-                      <td><span className={badgeClass(c.status)}>{labelize(c.status)}</span></td>
+                  {investigations.slice(0, 6).map((i) => (
+                    <tr key={i.investigation_id}>
+                      <td><Link href={`/investigations/${i.investigation_id}`} className="mono">{i.investigation_id}</Link></td>
+                      <td>{labelize(i.demo_case_key)}</td>
+                      <td><span className={badgeClass(i.status)}>{labelize(i.status)}</span></td>
+                      <td>{i.rule_count}</td>
+                      <td>{i.error ? <span className="badge badge-danger badge-plain">failed</span> : labelize(i.validation_status)}</td>
+                      <td className="muted small">{formatDateTime(i.created_at)}</td>
                     </tr>
                   ))}
-                  {cases.length === 0 && (
-                    <tr><td colSpan={5} className="table-empty">No cases yet.</td></tr>
+                  {investigations.length === 0 && (
+                    <tr><td colSpan={6} className="table-empty">No investigations yet — upload a synthetic payment or try a sample.</td></tr>
                   )}
                 </tbody>
               </table>
             </TableWrap>
           </Card>
+
+          <Card>
+            <CardHead
+              title="Business modules (existing — not part of the hackathon demo)"
+              sub="These reflect the copied PaymentOps modules. They are not populated by, or integrated with, the Evolus/AMD investigator."
+            />
+            <div className="card-body">
+              {business === 0 ? (
+                <EmptyState title="No business-module records in this deployment" message="Investigation data is shown above and is kept separate from these business statistics." />
+              ) : (
+                <div className="metric-grid">
+                  <Metric label="Analyzed (business)" value={(metrics.analyzed ?? 0).toLocaleString()} />
+                  <Metric label="Ready" value={(metrics.ready ?? 0).toLocaleString()} tone="ok" />
+                  <Metric label="Open cases" value={(metrics.open_cases ?? 0).toLocaleString()} />
+                  <Metric label="Running batches" value={(metrics.running_batches ?? 0).toLocaleString()} />
+                  <Metric label="Account reconciled" value={(metrics.account_reconciled ?? 0).toLocaleString()} tone="ok" />
+                </div>
+              )}
+            </div>
+          </Card>
         </>
       ) : null}
 
       <p className="muted small">
-        PaymentOps analyzes and reconciles payment data. It does not execute, authorize, settle, debit or credit payments.
+        PaymentOps analyzes payment data only. It does not execute, authorize, settle, debit or credit payments.
       </p>
     </AppShell>
   );

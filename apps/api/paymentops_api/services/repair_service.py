@@ -91,6 +91,17 @@ def build_proposal_contract() -> str:
         "- `evidence_ref` must be one of the refs in the supporting record.\n"
         "- If no evidence supports a missing field, omit it and list it under `missing_evidence`; "
         "do not propose a value for it.\n"
+        "Definitions and cautions:\n"
+        "- A field **absent from the payment XML but present in the supporting record is MISSING "
+        "DATA, not a conflict**.\n"
+        "- A **conflict** requires *incompatible evidence for the same party/field* (e.g. two "
+        "different recorded values, or evidence that disagrees with the message).\n"
+        "- The **absence of a rule finding does NOT mean every related check passed**; a rule not "
+        "cited was not evaluated as passing.\n"
+        "- Evidence supports **only the specified proposed changes**; do not claim that no other "
+        "evidence is needed in general.\n"
+        "- Recommend **sandbox testing before human review**, and clearly distinguish "
+        "**proposed changes** from **tested results** (proposed != validated).\n"
     )
 
 

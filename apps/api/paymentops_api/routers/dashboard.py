@@ -9,7 +9,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from paymentops_api.auth import AuthenticatedClient, get_api_client, get_db
-from paymentops_api.db.models import AccountEntryRow, BatchJob, PaymentCase
+from paymentops_api.db.models import AccountEntryRow, BatchJob, Investigation, PaymentCase
 
 router = APIRouter(tags=["dashboard"])
 
@@ -20,6 +20,37 @@ async def dashboard(
     session: AsyncSession = Depends(get_db),
 ) -> dict[str, object]:
     org = client.organization_id
+
+    # --- Hackathon: AI investigations (real, tenant-scoped) ---
+    # "completed" = the workflow finished. It is NOT the same as a validated sandbox repair or
+    # a human approval. Sandbox copies are never counted as executed payments.
+    inv_status = await _count_by(session, Investigation.status, Investigation.organization_id, org)
+    inv_source = await _count_by(session, Investigation.source, Investigation.organization_id, org)
+    repair_status = await _count_by(
+        session, Investigation.repair["status"].astext, Investigation.organization_id, org
+    )
+    sandbox_tests = await session.scalar(
+        select(func.count())
+        .select_from(Investigation)
+        .where(
+            Investigation.organization_id == org,
+            # JSON `null` != SQL NULL: use astext so `"test": null` is not counted.
+            Investigation.repair["test"].astext.isnot(None),
+        )
+    )
+    investigations = {
+        "total": sum(inv_status.values()),
+        "running": inv_status.get("RUNNING", 0) + inv_status.get("PENDING", 0),
+        "prepared": inv_status.get("PREPARED", 0),
+        "completed": inv_status.get("COMPLETED", 0),
+        "failed": inv_status.get("FAILED", 0),
+        "uploads": inv_source.get("upload", 0),
+        "samples": inv_source.get("demo", 0),
+        "sandbox_tests": int(sandbox_tests or 0),
+        "sandbox_validated": repair_status.get("VALIDATED", 0),
+        "review_required": repair_status.get("REVIEW_REQUIRED", 0),
+        "repair_rejected": repair_status.get("REJECTED", 0),
+    }
 
     readiness = await _count_by(
         session, PaymentCase.address_readiness, PaymentCase.organization_id, org
@@ -58,6 +89,7 @@ async def dashboard(
     reconciled = account.get("RECONCILED", 0)
 
     return {
+        "investigations": investigations,
         "analyzed": int(sum(readiness.values())),
         "ready": readiness.get("READY", 0),
         "repairable": readiness.get("REPAIRABLE", 0),

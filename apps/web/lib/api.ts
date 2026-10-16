@@ -233,6 +233,19 @@ export function createBatch(profileId: string, csv: string, profileVersion = 1) 
 }
 
 export interface DashboardMetrics {
+  investigations?: {
+    total: number;
+    running: number;
+    prepared: number;
+    completed: number;
+    failed: number;
+    uploads: number;
+    samples: number;
+    sandbox_tests: number;
+    sandbox_validated: number;
+    review_required: number;
+    repair_rejected: number;
+  };
   analyzed: number;
   ready: number;
   repairable: number;
@@ -931,7 +944,10 @@ export interface AgentResult {
 
 export interface InvestigationDetail extends InvestigationSummary {
   source?: string;
+  input_label?: string;
+  case_origin?: string;
   input_hash: string;
+  evidence_hash?: string | null;
   profile_version?: string | null;
   evolus_execution_id?: string | null;
   evolus_trace_id?: string | null;

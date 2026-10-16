@@ -23,43 +23,25 @@ import {
 
 const NAV_GROUPS: { label: string; items: { href: string; label: string; icon: typeof Activity }[] }[] = [
   {
-    label: 'Overview',
-    items: [{ href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard }],
-  },
-  {
-    label: 'Payment operations',
+    label: 'AI investigation (hackathon)',
     items: [
-      { href: '/analyze', label: 'Analyze Payment', icon: FileSearch },
-      { href: '/cases', label: 'Cases', icon: ClipboardCheck },
-      { href: '/batches', label: 'Batches', icon: Database },
+      { href: '/dashboard', label: 'Overview', icon: LayoutDashboard },
       { href: '/investigations', label: 'Investigations', icon: Brain },
     ],
   },
   {
-    label: 'Reconciliation',
+    label: 'Business modules (existing)',
     items: [
+      { href: '/analyze', label: 'Analyze Payment', icon: FileSearch },
+      { href: '/cases', label: 'Cases', icon: ClipboardCheck },
+      { href: '/batches', label: 'Batches', icon: Database },
       { href: '/matching', label: 'Matching', icon: SlidersHorizontal },
       { href: '/reconciliation', label: 'Reconciliation', icon: Scale },
-    ],
-  },
-  {
-    label: 'ISO & lifecycle',
-    items: [
       { href: '/iso-messages', label: 'ISO Messages', icon: Workflow },
       { href: '/lifecycles', label: 'Payment Lifecycles', icon: GitBranch },
       { href: '/account-reports', label: 'Account Reports', icon: FileSearch },
-    ],
-  },
-  {
-    label: 'Configuration',
-    items: [
       { href: '/profiles', label: 'Integration Profiles', icon: GitBranch },
       { href: '/api-clients', label: 'API Clients', icon: KeyRound },
-    ],
-  },
-  {
-    label: 'Governance',
-    items: [
       { href: '/audit', label: 'Audit', icon: History },
       { href: '/readiness', label: 'Readiness', icon: ShieldCheck },
       { href: '/settings', label: 'Settings', icon: Settings },

@@ -26,13 +26,14 @@ from paymentops_api.auth import AuthenticatedClient, get_api_client, get_db
 from paymentops_api.db.models import Investigation
 from paymentops_api.evolus.demo_cases import list_demo_cases
 from paymentops_api.services import investigation_service, repair_service
-from paymentops_api.services.case_payload import synthetic_input_preview
+from paymentops_api.services.case_payload import case_origin, synthetic_input_preview
 
 router = APIRouter(tags=["investigations"])
 
 _DISCLAIMER = (
-    "Phase 1 performs investigation only. It does not apply repairs, authorize, execute or "
-    "settle payments, and it does not establish account ownership."
+    "Investigation only. Proposed changes are tested on sandbox copies of the synthetic input; "
+    "the original payload is never modified. This does not authorize, execute, or settle "
+    "payments, and it does not establish account ownership."
 )
 
 
@@ -261,6 +262,8 @@ def _detail(inv: Investigation) -> dict[str, object]:
     return {
         **_summary(inv),
         "source": inv.source,
+        "input_label": "uploaded" if inv.source == "upload" else "sample",
+        "case_origin": case_origin(inv),
         "input_hash": inv.input_hash,
         "evidence_hash": inv.evidence_hash,
         "profile_version": inv.profile_version,

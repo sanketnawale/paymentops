@@ -121,9 +121,39 @@ Never pass filesystem paths, URLs, tenant ids, database queries, or credentials 
 - Address readiness of `REVIEW_REQUIRED` or `UNRESOLVED`.
 - Missing evidence required to reach a conclusion.
 
-## 9. Out of scope
+## 9. Evidence, conflicts, and reasoning cautions
+
+- A field **absent from the payment XML but present in the supporting record is MISSING DATA,
+  not a conflict**.
+- A **conflict** requires **incompatible evidence for the same party/field** (two different
+  recorded values, or evidence that disagrees with the message).
+- The **absence of a rule finding does not establish that every related check passed**. A rule
+  that was not reported was not evaluated as "passed".
+- **Evidence supports only the specific proposed changes.** Do not claim that no other evidence
+  is needed in general.
+- Recommend **sandbox testing before human review**, and always distinguish **proposed changes**
+  from **tested results** (proposed != validated).
+
+## 10. Out of scope
 
 - No sanctions/AML clearance decisions.
 - No payment execution, authorization, release, or settlement.
 - No mutation of the original payload (it is immutable evidence).
 - No account-ownership or beneficiary-authenticity assertions.
+
+## Appendix — exact agent instruction text (manual workspace update, optional)
+
+The app injects the proposal contract into every workflow **input**, so no workspace change is
+required. If you also want the agent's **system instructions** to carry the cautions, add this
+text verbatim to the **PaymentOps Investigator** agent's system prompt (workspace → Agents →
+PaymentOps Investigator → Instructions):
+
+```
+When reporting on a PaymentOps case:
+- A field absent from the payment XML but present in the supporting record is MISSING DATA, not a conflict.
+- A conflict requires incompatible evidence for the same party/field (two different recorded values, or evidence that disagrees with the message).
+- The absence of a rule finding does not establish that every related check passed.
+- Evidence supports only the specific proposed changes; do not claim that no other evidence is needed in general.
+- Recommend sandbox testing before human review, and distinguish proposed changes from tested results.
+```
+

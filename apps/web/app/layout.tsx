@@ -1,27 +1,10 @@
 import { type Metadata } from 'next';
-import { DM_Sans, IBM_Plex_Mono, Space_Grotesk } from 'next/font/google';
 import './globals.css';
 
-const dmSans = DM_Sans({
-  subsets: ['latin'],
-  weight: ['400', '500', '600', '700'],
-  variable: '--font-dm-sans',
-  display: 'swap',
-});
-
-const ibmPlexMono = IBM_Plex_Mono({
-  subsets: ['latin'],
-  weight: ['400', '500', '600'],
-  variable: '--font-ibm-plex-mono',
-  display: 'swap',
-});
-
-const spaceGrotesk = Space_Grotesk({
-  subsets: ['latin'],
-  weight: ['500', '600', '700'],
-  variable: '--font-space-grotesk',
-  display: 'swap',
-});
+// Typography is resolved from the system fallback stacks defined in globals.css
+// (`--font-sans`, `--font-mono`, `--font-display`). We intentionally avoid `next/font/google`
+// so the build has no network dependency on Google Fonts (which was intermittently
+// unreachable and failed CI builds).
 
 export const metadata: Metadata = {
   title: 'CloudNova PaymentOps',
@@ -31,7 +14,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${dmSans.variable} ${ibmPlexMono.variable} ${spaceGrotesk.variable}`}>
+    <html lang="en">
       <body>{children}</body>
     </html>
   );

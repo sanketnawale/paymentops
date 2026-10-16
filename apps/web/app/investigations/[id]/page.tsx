@@ -23,6 +23,12 @@ const TERMINAL = new Set(['COMPLETED', 'FAILED', 'PREPARED']);
 const MAX_POLLS = 40;
 const POLL_MS = 3000;
 
+function looksPlaceholder(value: string | null | undefined): boolean {
+  if (!value) return true;
+  const text = value.trim();
+  return text === '' || text === '...' || text === '…' || /^<.*>$/.test(text);
+}
+
 export default function InvestigationDetailPage() {
   const { id } = useParams<{ id: string }>();
   const [detail, setDetail] = useState<InvestigationDetail | null>(null);
@@ -81,6 +87,14 @@ export default function InvestigationDetailPage() {
   const proposal = repair?.proposal;
   const sandbox = repair?.test;
   const inputLabel = detail?.input_label ?? 'sample';
+  const serverValidated = proposal?.server_validation?.allowed ?? [];
+  const serverRejected = proposal?.server_validation?.rejected ?? [];
+  const proposedChanges = serverValidated.length > 0
+    ? serverValidated
+    : (proposal?.changes ?? []).filter((c) => !looksPlaceholder(c.value) && !looksPlaceholder(c.evidence_ref));
+  const nextStep = [agent?.recommended_next_step, proposal?.recommended_next_step].find(
+    (s) => typeof s === 'string' && !looksPlaceholder(s),
+  ) ?? null;
 
   return (
     <AppShell>
@@ -209,7 +223,7 @@ export default function InvestigationDetailPage() {
                         <ul className="status-list">{agent.missing_evidence.map((m, i) => (<li key={i}><span>{m}</span></li>))}</ul>
                       ) : (<p className="muted small">None reported.</p>)}
                       <p className="field-label" style={{ marginTop: '0.75rem' }}>Recommended human next step</p>
-                      <p style={{ marginTop: 0 }}>{agent?.recommended_next_step ?? proposal?.recommended_next_step ?? 'Not provided by the agent.'}</p>
+                      <p style={{ marginTop: 0 }}>{nextStep ?? 'Not provided by the agent.'}</p>
                     </>
                   ) : (
                     <EmptyState title="No agent output" message="The run completed but returned no parseable agent explanation." />
@@ -254,16 +268,26 @@ export default function InvestigationDetailPage() {
                   <Notice tone="warn"><span>No structured proposal could be parsed from the agent output: {proposal.error}</span></Notice>
                 ) : null}
 
-                <p className="field-label" style={{ marginTop: 0 }}>Proposed changes (not yet tested)</p>
-                {(proposal?.changes ?? []).length === 0 ? (
-                  <p className="muted small">No changes proposed.</p>
+                <p className="field-label" style={{ marginTop: 0 }}>Proposed changes (server-validated)</p>
+                {proposedChanges.length === 0 ? (
+                  <p className="muted small">No server-validated changes proposed.</p>
                 ) : (
                   <ul className="status-list">
-                    {(proposal?.changes ?? []).map((c, i) => (
+                    {proposedChanges.map((c, i) => (
                       <li key={i}><span><strong className="mono">{c.target}</strong> = {c.value}<br /><span className="muted small">evidence: <span className="mono">{c.evidence_ref}</span></span></span></li>
                     ))}
                   </ul>
                 )}
+                {serverRejected.length > 0 ? (
+                  <>
+                    <p className="field-label" style={{ marginTop: '0.75rem' }}>Rejected at validation</p>
+                    <ul className="status-list">
+                      {serverRejected.map((r, i) => (
+                        <li key={i}><span><strong className="mono">{r.target || '—'}</strong> · {r.reason}</span><span className={badgeClass('REJECTED')}>{labelize('REJECTED')}</span></li>
+                      ))}
+                    </ul>
+                  </>
+                ) : null}
                 {(repair?.rejected_changes ?? []).length > 0 ? (
                   <>
                     <p className="field-label" style={{ marginTop: '0.75rem' }}>Rejected changes</p>

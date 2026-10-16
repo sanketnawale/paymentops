@@ -451,6 +451,14 @@ async def refresh_investigation(
         if reasoning:
             agent_result["reasoning_inline_excerpt"] = reasoning[:2000]
         inv.agent_result = agent_result
+        if proposal.get("status") == "PROPOSED":
+            allowed, rejected_preview = repair_service.validate_proposal(
+                proposal.get("changes") or [], _load_record(inv)
+            )
+            proposal["server_validation"] = {
+                "allowed": allowed,
+                "rejected": rejected_preview,
+            }
         inv.repair = {"status": proposal.get("status"), "proposal": proposal}
         inv.error = None
     elif execution.status == "FAILED":

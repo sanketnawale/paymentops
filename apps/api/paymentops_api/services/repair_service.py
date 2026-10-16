@@ -108,16 +108,30 @@ def build_proposal_contract() -> str:
 # --------------------------------------------------------------------------- parsing
 
 
-def _extract_fenced_json(text: str) -> tuple[dict[str, Any] | None, str | None]:
-    match = _FENCE_RE.search(text)
-    if not match:
-        return None, None
-    raw = match.group(0)
-    try:
-        obj = json.loads(match.group(1))
-    except json.JSONDecodeError:
-        return None, raw
-    return (obj if isinstance(obj, dict) else None), raw
+_PLACEHOLDER_RE = re.compile(r"^\s*<[^>]*>\s*$")
+
+
+def _is_placeholder(value: str | None) -> bool:
+    """True for template placeholders like ``<value from the record>``, ``...`` or empty."""
+    if value is None:
+        return True
+    text = value.strip()
+    if not text or text in {"...", "…"}:
+        return True
+    return bool(_PLACEHOLDER_RE.match(text))
+
+
+def _iter_fenced_json(text: str) -> list[tuple[dict[str, Any], str]]:
+    """Return every fenced JSON object in ``text`` (the model may echo the prompt contract)."""
+    found: list[tuple[dict[str, Any], str]] = []
+    for match in _FENCE_RE.finditer(text):
+        try:
+            obj = json.loads(match.group(1))
+        except json.JSONDecodeError:
+            continue
+        if isinstance(obj, dict):
+            found.append((obj, match.group(0)))
+    return found
 
 
 def _find_json_with_key(text: str, key: str) -> dict[str, Any] | None:
@@ -151,41 +165,58 @@ def _normalise_change(item: Any) -> dict[str, str] | None:
     }
 
 
+def _usable_changes(obj: dict[str, Any]) -> list[dict[str, str]]:
+    """Return the non-placeholder changes from a candidate object (may be empty)."""
+    raw = obj.get("proposed_changes")
+    if not isinstance(raw, list):
+        return []
+    out: list[dict[str, str]] = []
+    for item in raw:
+        change = _normalise_change(item)
+        if change is None:
+            continue
+        # Never store template placeholders or otherwise fabricated values.
+        if _is_placeholder(change["value"]) or _is_placeholder(change["evidence_ref"]):
+            continue
+        out.append(change)
+    return out
+
+
 def parse_repair_proposal(execution: WorkflowExecution) -> dict[str, Any]:
-    """Parse the agent's structured repair proposal. Never raises; always returns a dict."""
+    """Parse the agent's structured repair proposal. Never raises; always returns a dict.
+
+    Scans ALL fenced JSON blocks and selects the agent's **real, non-placeholder** proposal. The
+    contract template injected into the prompt is sometimes echoed back by the model; we must
+    never store its placeholders and never fabricate a proposal.
+    """
     text = execution.output_text or ""
-    obj, raw_block = _extract_fenced_json(text)
-    if obj is None:
-        obj = _find_json_with_key(text, "proposed_changes")
-    if obj is None:
+    best: tuple[dict[str, Any], str | None] | None = None
+    for obj, raw in _iter_fenced_json(text):
+        if _usable_changes(obj):
+            best = (obj, raw)  # prefer the last valid block (agent's final proposal)
+    if best is None:
+        fallback = _find_json_with_key(text, "proposed_changes")
+        if fallback is not None and _usable_changes(fallback):
+            best = (fallback, None)
+    if best is None:
         return {
             "status": "PROPOSAL_UNPARSEABLE",
-            "error": "No structured repair proposal block was found in the agent output.",
+            "error": "No non-placeholder structured repair proposal was found in the agent output.",
             "changes": [],
             "missing_evidence": [],
             "recommended_next_step": None,
-            "raw_block": raw_block,
+            "raw_block": None,
         }
-    raw_changes = obj.get("proposed_changes")
-    if not isinstance(raw_changes, list):
-        return {
-            "status": "PROPOSAL_UNPARSEABLE",
-            "error": "proposed_changes is missing or not a list.",
-            "changes": [],
-            "missing_evidence": [],
-            "recommended_next_step": None,
-            "raw_block": raw_block,
-        }
-    changes = [c for c in (_normalise_change(i) for i in raw_changes) if c is not None]
+    obj, raw_block = best
     missing = obj.get("missing_evidence")
+    next_step = obj.get("recommended_next_step")
+    next_step_str = str(next_step) if next_step is not None else ""
     return {
         "status": "PROPOSED",
         "error": None,
-        "changes": changes,
+        "changes": _usable_changes(obj),
         "missing_evidence": [str(x) for x in missing] if isinstance(missing, list) else [],
-        "recommended_next_step": (
-            str(obj.get("recommended_next_step")) if obj.get("recommended_next_step") else None
-        ),
+        "recommended_next_step": None if _is_placeholder(next_step_str) else next_step_str,
         "raw_block": raw_block,
     }
 
@@ -237,7 +268,9 @@ def validate_proposal(
         ref = change.get("evidence_ref", "")
         reason: str | None = None
         match = _TARGET_RE.fullmatch(target)
-        if not match:
+        if _is_placeholder(value) or _is_placeholder(ref):
+            reason = "placeholder value or evidence_ref"
+        elif not match:
             reason = "target is not an allowlisted party/field"
         elif not value:
             reason = "value is empty"

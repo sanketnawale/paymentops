@@ -885,6 +885,7 @@ export interface Repair {
     status?: string;
     error?: string | null;
     changes?: ProposedChange[];
+    server_validation?: { allowed: ValidatedChange[]; rejected: RejectedChange[] } | null;
     missing_evidence?: string[];
     recommended_next_step?: string | null;
   } | null;

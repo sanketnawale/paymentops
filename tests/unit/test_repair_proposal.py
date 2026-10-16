@@ -248,3 +248,62 @@ def test_evidence_linked_towns_match_sandbox_targets(pipeline, registry):
     new_root, _ = apply_changes(root, entries)
     result = pipeline.analyze_iso(serialize(new_root).encode("utf-8"), registry)
     assert "ADR-001" not in {f["rule_id"] for f in result.rule_findings}
+
+
+# --------------------------------------------------------------------------- placeholder handling
+
+_PLACEHOLDER_BLOCK = (
+    '```json\n{"proposed_changes":[{"target":"Dbtr/PstlAdr/TwnNm",'
+    '"value":"<value from the record>","evidence_ref":"<evidence_ref>"}],'
+    '"missing_evidence":["..."],"recommended_next_step":"..."}\n```'
+)
+_REAL_BLOCK = (
+    '```json\n{"proposed_changes":[{"target":"Dbtr/PstlAdr/TwnNm",'
+    '"value":"Bologna","evidence_ref":"SR-NEW-TEST:debtor-town"},'
+    '{"target":"Cdtr/PstlAdr/TwnNm","value":"Torino","evidence_ref":"SR-NEW-TEST:creditor-town"}],'
+    '"recommended_next_step":"Test the proposal on a sandbox copy, then route to a human reviewer."}\n```'
+)
+
+
+def test_parse_proposal_skips_echoed_contract_placeholder_block():
+    """The agent may echo the prompt contract; we must pick its real proposal, not placeholders."""
+    text = f"Reasoning...\n{_PLACEHOLDER_BLOCK}\n\n## Report\n{_REAL_BLOCK}\n"
+    execution = WorkflowExecution(
+        status="COMPLETED", raw_status="Completed", output_text=text, result=None, raw={}
+    )
+    proposal = svc.parse_repair_proposal(execution)
+    assert proposal["status"] == "PROPOSED"
+    assert [c["value"] for c in proposal["changes"]] == ["Bologna", "Torino"]
+    assert all("<" not in c["value"] and "<" not in c["evidence_ref"] for c in proposal["changes"])
+    assert proposal["recommended_next_step"] and "..." != proposal["recommended_next_step"]
+
+
+def test_parse_proposal_placeholder_only_is_unparseable():
+    execution = WorkflowExecution(
+        status="COMPLETED",
+        raw_status="Completed",
+        output_text=_PLACEHOLDER_BLOCK,
+        result=None,
+        raw={},
+    )
+    proposal = svc.parse_repair_proposal(execution)
+    assert proposal["status"] == "PROPOSAL_UNPARSEABLE"
+    assert proposal["changes"] == []
+    assert proposal["recommended_next_step"] is None
+
+
+def test_validate_proposal_rejects_placeholders():
+    record = get_demo_case("pacs008-missing-town").supporting_record
+    allowed, rejected = svc.validate_proposal(
+        [
+            {
+                "target": "Dbtr/PstlAdr/TwnNm",
+                "value": "<value from the record>",
+                "evidence_ref": "<evidence_ref>",
+            }
+        ],
+        record,
+    )
+    assert (
+        allowed == [] and rejected and rejected[0]["reason"] == "placeholder value or evidence_ref"
+    )

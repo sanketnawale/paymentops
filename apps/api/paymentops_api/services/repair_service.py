@@ -98,6 +98,8 @@ def build_proposal_contract() -> str:
         "different recorded values, or evidence that disagrees with the message).\n"
         "- The **absence of a rule finding does NOT mean every related check passed**; a rule not "
         "cited was not evaluated as passing.\n"
+        "- **Supported message versions are still XSD-validated**; report schema validity "
+        "separately from rule findings.\n"
         "- Evidence supports **only the specified proposed changes**; do not claim that no other "
         "evidence is needed in general.\n"
         "- Recommend **sandbox testing before human review**, and clearly distinguish "

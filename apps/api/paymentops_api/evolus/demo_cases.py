@@ -116,7 +116,7 @@ _MISSING_TOWN_EVIDENCE = SupportingRecord(
 
 _INCOMPLETE_TOWN_EVIDENCE = SupportingRecord(
     record_id="SR-2",
-    label="Synthetic account master record (incomplete / contradictory)",
+    label="Synthetic account master record (incomplete)",
     source="synthetic master-data extract (demo)",
     entries=(
         EvidenceEntry(
@@ -127,13 +127,10 @@ _INCOMPLETE_TOWN_EVIDENCE = SupportingRecord(
             note="Registered town of the debtor account holder",
         ),
     ),
+    # Absence of the creditor town is MISSING DATA (a gap), not a contradiction.
     gaps=(
         "No creditor town is present in the supporting record.",
-        "The supporting record contains no value that can be attributed to Cdtr/PstlAdr/TwnNm.",
-    ),
-    contradictions=(
-        "The debtor postal code (20121) is consistent with Milano, but no creditor locality "
-        "evidence exists for the creditor address.",
+        "No creditor locality evidence; the creditor town must not be inferred.",
     ),
 )
 

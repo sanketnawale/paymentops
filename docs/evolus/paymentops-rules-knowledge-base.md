@@ -129,6 +129,8 @@ Never pass filesystem paths, URLs, tenant ids, database queries, or credentials 
   recorded values, or evidence that disagrees with the message).
 - The **absence of a rule finding does not establish that every related check passed**. A rule
   that was not reported was not evaluated as "passed".
+- **Supported message versions are still validated against the XSD schema**; report schema
+  validity separately from rule findings.
 - **Evidence supports only the specific proposed changes.** Do not claim that no other evidence
   is needed in general.
 - Recommend **sandbox testing before human review**, and always distinguish **proposed changes**
@@ -153,6 +155,7 @@ When reporting on a PaymentOps case:
 - A field absent from the payment XML but present in the supporting record is MISSING DATA, not a conflict.
 - A conflict requires incompatible evidence for the same party/field (two different recorded values, or evidence that disagrees with the message).
 - The absence of a rule finding does not establish that every related check passed.
+- Supported message versions are still validated against the XSD schema; report schema validity separately from rule findings.
 - Evidence supports only the specific proposed changes; do not claim that no other evidence is needed in general.
 - Recommend sandbox testing before human review, and distinguish proposed changes from tested results.
 ```

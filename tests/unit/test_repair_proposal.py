@@ -49,7 +49,7 @@ def test_evidence_records_are_linked_to_parties():
     assert incomplete is not None
     assert {e.party for e in incomplete.entries} == {"Dbtr"}
     assert incomplete.gaps  # creditor town missing
-    assert incomplete.contradictions  # contradictory note
+    assert incomplete.gaps and not incomplete.contradictions  # missing data, not a conflict
 
 
 # --------------------------------------------------------------------------- validation

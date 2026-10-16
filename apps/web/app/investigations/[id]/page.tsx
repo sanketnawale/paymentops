@@ -116,7 +116,7 @@ export default function InvestigationDetailPage() {
 
       <Notice tone="accent">
         <ShieldCheck size={15} aria-hidden="true" />
-        <span><strong>Investigation only.</strong> {detail?.disclaimer}</span>
+        <span>{detail?.disclaimer ?? 'Investigation only. Proposed changes are tested on sandbox copies of the synthetic input; the original is never modified. This does not authorize, execute, or settle payments.'}</span>
       </Notice>
 
       {error ? <ErrorState message={error} onRetry={() => load()} /> : null}
@@ -207,10 +207,17 @@ export default function InvestigationDetailPage() {
                     <>
                       {agent?.answer_separation_reliable === false ? (
                         <Notice tone="warn">
-                          <span>Formatting note: the final answer could not be cleanly separated from the model&apos;s inline reasoning, so the full parsed text is shown. Nothing was removed.</span>
+                          <span>
+                            Report formatting: the final narrative could not be cleanly separated
+                            from the model&apos;s inline reasoning, so it is not shown here. The raw
+                            agent output is in <strong>Developer diagnostics</strong>; the
+                            structured findings, evidence, and server-validated proposals below are
+                            authoritative.
+                          </span>
                         </Notice>
-                      ) : null}
-                      <Markdown>{detail.answer_text || agent?.explanation || ''}</Markdown>
+                      ) : (
+                        <Markdown>{detail.answer_text || agent?.explanation || ''}</Markdown>
+                      )}
                       <p className="field-label" style={{ marginTop: '0.75rem' }}>Rule agreement (agent mentions ∩ engine)</p>
                       {agent?.agreement_rules && agent.agreement_rules.length > 0 ? (
                         <ul className="status-list">{agent.agreement_rules.map((r) => (<li key={r}><span className="mono">{r}</span></li>))}</ul>
@@ -219,9 +226,20 @@ export default function InvestigationDetailPage() {
                         A matching rule id is agreement, not proof the explanation is correct.
                       </p>
                       <p className="field-label" style={{ marginTop: '0.75rem' }}>Missing evidence</p>
+                      <p className="muted small" style={{ margin: '0.25rem 0' }}>Supporting-record gaps (server-known)</p>
+                      {(record?.gaps ?? []).length > 0 ? (
+                        <ul className="status-list">{(record?.gaps ?? []).map((g, i) => (<li key={`sg-${i}`}><span>{g}</span></li>))}</ul>
+                      ) : (<p className="muted small">None.</p>)}
+                      {(record?.contradictions ?? []).length > 0 ? (
+                        <>
+                          <p className="muted small" style={{ margin: '0.25rem 0' }}>Conflicts (incompatible evidence)</p>
+                          <ul className="status-list">{(record?.contradictions ?? []).map((c, i) => (<li key={`sc-${i}`}><span>{c}</span></li>))}</ul>
+                        </>
+                      ) : null}
+                      <p className="muted small" style={{ margin: '0.25rem 0' }}>Agent-reported</p>
                       {agent?.missing_evidence && agent.missing_evidence.length > 0 ? (
-                        <ul className="status-list">{agent.missing_evidence.map((m, i) => (<li key={i}><span>{m}</span></li>))}</ul>
-                      ) : (<p className="muted small">None reported.</p>)}
+                        <ul className="status-list">{agent.missing_evidence.map((m, i) => (<li key={`am-${i}`}><span>{m}</span></li>))}</ul>
+                      ) : (<p className="muted small">None reported by the agent.</p>)}
                       <p className="field-label" style={{ marginTop: '0.75rem' }}>Recommended human next step</p>
                       <p style={{ marginTop: 0 }}>{nextStep ?? 'Not provided by the agent.'}</p>
                     </>

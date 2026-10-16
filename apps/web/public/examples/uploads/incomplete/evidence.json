@@ -11,6 +11,9 @@
       "note": "Registered town of the debtor account holder"
     }
   ],
-  "gaps": ["No creditor town is present in the supporting record."],
-  "contradictions": ["No creditor locality evidence; the creditor town must not be inferred."]
+  "gaps": [
+    "No creditor town is present in the supporting record.",
+    "No creditor locality evidence; the creditor town must not be inferred."
+  ],
+  "contradictions": []
 }

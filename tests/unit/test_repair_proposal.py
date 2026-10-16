@@ -261,7 +261,7 @@ _REAL_BLOCK = (
     '```json\n{"proposed_changes":[{"target":"Dbtr/PstlAdr/TwnNm",'
     '"value":"Bologna","evidence_ref":"SR-NEW-TEST:debtor-town"},'
     '{"target":"Cdtr/PstlAdr/TwnNm","value":"Torino","evidence_ref":"SR-NEW-TEST:creditor-town"}],'
-    '"recommended_next_step":"Test the proposal on a sandbox copy, then route to a human reviewer."}\n```'
+    '"recommended_next_step":"Test on a sandbox copy, then human review."}\n```'
 )
 
 

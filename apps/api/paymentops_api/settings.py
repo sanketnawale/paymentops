@@ -133,6 +133,12 @@ class Settings(BaseSettings):
     # whose demo cases the validation tool may read. Empty disables the extra guard.
     evolus_demo_org_public_id: str | None = None
 
+    # --- Phase 3A Batch Exception Desk ---
+    # Durable in-process runner (DB-backed, no broker). Disable for tests/smoke where the
+    # background loop should not run.
+    batch_runner_enabled: bool = True
+    batch_runner_poll_seconds: float = 3.0
+
     @field_validator("cors_allowed_origins", "allowed_hosts", "ready_checks", mode="before")
     @classmethod
     def _split_comma(cls, value: object) -> object:

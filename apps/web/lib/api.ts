@@ -933,6 +933,8 @@ export interface AgentResult {
   explanation?: string | null;
   cited_rules?: string[];
   missing_evidence?: string[];
+  missing_evidence_present?: boolean;
+  missing_evidence_provenance?: string;
   recommended_next_step?: string | null;
   output_text?: string | null;
   agent_rule_mentions?: string[];
@@ -941,6 +943,27 @@ export interface AgentResult {
   answer_separation_reliable?: boolean;
   reasoning_inline_excerpt?: string | null;
   raw?: Record<string, unknown>;
+}
+
+export interface ServerDerivedGap {
+  gap: string;
+  provenance: string;
+  rule_id: string;
+  party: string;
+}
+
+export interface MergedEvidenceGap {
+  gap: string;
+  provenance: string[];
+}
+
+export interface EvidenceGaps {
+  supporting_record: string[];
+  server_derived: ServerDerivedGap[];
+  agent_reported: string[];
+  agent_reported_status: 'PROVIDED' | 'NOT_SUPPLIED';
+  conflicts: string[];
+  merged: MergedEvidenceGap[];
 }
 
 export interface InvestigationDetail extends InvestigationSummary {
@@ -965,6 +988,7 @@ export interface InvestigationDetail extends InvestigationSummary {
   agent_result?: AgentResult | null;
   answer_text?: string | null;
   supporting_record?: SupportingRecord | null;
+  evidence_gaps?: EvidenceGaps | null;
   repair?: Repair | null;
   synthetic_input?: string | null;
   disclaimer?: string;
@@ -1005,4 +1029,93 @@ export function uploadInvestigation(
     method: 'POST',
     body: JSON.stringify({ xml, evidence, start_workflow: startWorkflow }),
   });
+}
+
+// ---------------------------------------------------------------- Batch Exception Desk (Phase 3A)
+
+export interface ExceptionBatchItemInput {
+  xml: string;
+  evidence: Record<string, unknown> | null;
+  filename?: string | null;
+}
+
+export interface ExceptionBatchItem {
+  item_id: string;
+  item_index: number;
+  display_filename?: string | null;
+  status: string;
+  error?: string | null;
+  input_hash: string;
+  evidence_hash?: string | null;
+  investigation_id?: string | null;
+  evolus_execution_id?: string | null;
+  investigation_status?: string | null;
+  evidence_refs?: string[];
+  original_findings?: InvestigationFinding[];
+  repair_status?: string | null;
+  proposed_changes?: ValidatedChange[];
+  rejected_changes?: RejectedChange[];
+  sandbox?: {
+    sandbox_id?: string | null;
+    original_hash?: string | null;
+    sandbox_hash?: string | null;
+    review_status?: string | null;
+    xsd_valid?: boolean | null;
+    before_findings?: InvestigationFinding[] | null;
+    after_findings?: InvestigationFinding[] | null;
+    applied_changes?: ValidatedChange[] | null;
+    unresolved_findings?: { rule_id: string; target: string }[] | null;
+    tested_at?: string | null;
+  } | null;
+  remaining_findings?: InvestigationFinding[] | null;
+  unresolved_findings?: { rule_id: string; target: string }[] | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface ExceptionBatchSummary {
+  batch_id: string;
+  status: string;
+  total_items: number;
+  counts: Record<string, number>;
+  completed: number;
+  failed: number;
+  rejected: number;
+  pending: number;
+  created_at?: string | null;
+  updated_at?: string | null;
+  completed_at?: string | null;
+}
+
+export interface ExceptionBatchDetail extends ExceptionBatchSummary {
+  items: ExceptionBatchItem[];
+  disclaimer?: string;
+}
+
+export function createExceptionBatch(items: ExceptionBatchItemInput[], idempotencyKey?: string) {
+  return apiJson<ExceptionBatchDetail>('/api/v1/exception-batches', {
+    method: 'POST',
+    body: JSON.stringify({ items, idempotency_key: idempotencyKey }),
+  });
+}
+
+export function listExceptionBatches() {
+  return apiJson<ExceptionBatchSummary[]>('/api/v1/exception-batches?limit=50');
+}
+
+export function getExceptionBatch(batchId: string) {
+  return apiJson<ExceptionBatchDetail>(`/api/v1/exception-batches/${encodeURIComponent(batchId)}`);
+}
+
+export function testExceptionItemRepair(batchId: string, itemId: string) {
+  return apiJson<ExceptionBatchDetail>(
+    `/api/v1/exception-batches/${encodeURIComponent(batchId)}/items/${encodeURIComponent(itemId)}/repair/test`,
+    { method: 'POST' },
+  );
+}
+
+export function exportExceptionBatch(batchId: string) {
+  return apiJson<Record<string, unknown>>(
+    `/api/v1/exception-batches/${encodeURIComponent(batchId)}/export`,
+  );
 }

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -26,6 +27,7 @@ from paymentops_api.routers import (
     cases,
     clients,
     dashboard,
+    exception_batches,
     health,
     info,
     integrations,
@@ -35,6 +37,7 @@ from paymentops_api.routers import (
     metrics,
     profiles,
 )
+from paymentops_api.services import batch_runner
 from paymentops_api.settings import Settings, get_settings
 
 from address_engine.base import AddressProvider
@@ -79,9 +82,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         logger.info("application_started", version=settings.app_version)
+        runner: asyncio.Task[None] | None = None
+        if settings.batch_runner_enabled:
+            runner = asyncio.create_task(
+                batch_runner.run_loop(app, poll_seconds=settings.batch_runner_poll_seconds)
+            )
+            app.state.batch_runner = runner
         try:
             yield
         finally:
+            if runner is not None:
+                runner.cancel()
+                try:
+                    await runner
+                except (asyncio.CancelledError, Exception) as exc:  # noqa: BLE001
+                    logger.debug("batch_runner_stopped", error=type(exc).__name__)
             await app.state.db.dispose()
             logger.info("application_stopped")
 
@@ -142,6 +157,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(audit.router)
     app.include_router(auth.router)
     app.include_router(investigations.router)
+    app.include_router(exception_batches.router)
 
     # Attach the analysis pipeline (deterministic engines) so routes can use it.
     provider = build_address_provider(settings)

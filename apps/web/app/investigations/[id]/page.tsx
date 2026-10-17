@@ -83,6 +83,7 @@ export default function InvestigationDetailPage() {
   const findings = detail?.deterministic_findings?.rule_findings ?? [];
   const agent = detail?.agent_result;
   const record = detail?.supporting_record;
+  const gaps = detail?.evidence_gaps;
   const repair = detail?.repair;
   const proposal = repair?.proposal;
   const sandbox = repair?.test;
@@ -195,6 +196,11 @@ export default function InvestigationDetailPage() {
             <Card>
               <CardHead title="Investigator report" sub="Agent interpretation of the engine output" actions={<Brain size={15} aria-hidden="true" />} />
               <div className="card-body">
+                <p className="muted small" style={{ marginTop: 0 }}>
+                  Original run — <strong>pre-sandbox</strong>. Any sandbox re-validation appears
+                  separately under Sandbox repair. A partial repair does not predict improved
+                  readiness.
+                </p>
                 {detail.error ? (
                   <Notice tone="danger"><AlertTriangle size={15} aria-hidden="true" /><span><strong>Integration failure.</strong> {detail.error}</span></Notice>
                 ) : null}
@@ -225,21 +231,37 @@ export default function InvestigationDetailPage() {
                       <p className="muted small" style={{ marginTop: '0.5rem' }}>
                         A matching rule id is agreement, not proof the explanation is correct.
                       </p>
-                      <p className="field-label" style={{ marginTop: '0.75rem' }}>Missing evidence</p>
+                      <p className="field-label" style={{ marginTop: '0.75rem' }}>Evidence gaps</p>
                       <p className="muted small" style={{ margin: '0.25rem 0' }}>Supporting-record gaps (server-known)</p>
-                      {(record?.gaps ?? []).length > 0 ? (
-                        <ul className="status-list">{(record?.gaps ?? []).map((g, i) => (<li key={`sg-${i}`}><span>{g}</span></li>))}</ul>
-                      ) : (<p className="muted small">None.</p>)}
-                      {(record?.contradictions ?? []).length > 0 ? (
+                      {(gaps?.supporting_record ?? record?.gaps ?? []).length > 0 ? (
+                        <ul className="status-list">{(gaps?.supporting_record ?? record?.gaps ?? []).map((g, i) => (<li key={`sg-${i}`}><span>{g}</span></li>))}</ul>
+                      ) : (<p className="muted small">None recorded in the supporting record.</p>)}
+                      {(gaps?.server_derived ?? []).length > 0 ? (
                         <>
-                          <p className="muted small" style={{ margin: '0.25rem 0' }}>Conflicts (incompatible evidence)</p>
-                          <ul className="status-list">{(record?.contradictions ?? []).map((c, i) => (<li key={`sc-${i}`}><span>{c}</span></li>))}</ul>
+                          <p className="muted small" style={{ margin: '0.25rem 0' }}>Server-derived (findings with no matching evidence)</p>
+                          <ul className="status-list">
+                            {(gaps?.server_derived ?? []).map((g, i) => (
+                              <li key={`sd-${i}`}><span>{g.gap}<br /><span className="muted small mono">{g.rule_id} · {g.party} · {g.provenance}</span></span></li>
+                            ))}
+                          </ul>
                         </>
                       ) : null}
-                      <p className="muted small" style={{ margin: '0.25rem 0' }}>Agent-reported</p>
-                      {agent?.missing_evidence && agent.missing_evidence.length > 0 ? (
-                        <ul className="status-list">{agent.missing_evidence.map((m, i) => (<li key={`am-${i}`}><span>{m}</span></li>))}</ul>
-                      ) : (<p className="muted small">None reported by the agent.</p>)}
+                      {(gaps?.conflicts ?? record?.contradictions ?? []).length > 0 ? (
+                        <>
+                          <p className="muted small" style={{ margin: '0.25rem 0' }}>Conflicts (incompatible evidence)</p>
+                          <ul className="status-list">{(gaps?.conflicts ?? record?.contradictions ?? []).map((c, i) => (<li key={`sc-${i}`}><span>{c}</span></li>))}</ul>
+                        </>
+                      ) : null}
+                      <p className="muted small" style={{ margin: '0.25rem 0' }}>Agent-reported structured gaps</p>
+                      {(gaps?.agent_reported ?? agent?.missing_evidence ?? []).length > 0 ? (
+                        <ul className="status-list">{(gaps?.agent_reported ?? agent?.missing_evidence ?? []).map((m, i) => (<li key={`am-${i}`}><span>{m}</span></li>))}</ul>
+                      ) : (
+                        <p className="muted small">
+                          {(gaps?.agent_reported_status ?? (agent?.missing_evidence_present ? 'PROVIDED' : 'NOT_SUPPLIED')) === 'NOT_SUPPLIED'
+                            ? 'No structured gaps supplied by agent.'
+                            : 'Agent supplied an empty structured gap list.'}
+                        </p>
+                      )}
                       <p className="field-label" style={{ marginTop: '0.75rem' }}>Recommended human next step</p>
                       <p style={{ marginTop: 0 }}>{nextStep ?? 'Not provided by the agent.'}</p>
                     </>

@@ -26,7 +26,11 @@ from paymentops_api.auth import AuthenticatedClient, get_api_client, get_db
 from paymentops_api.db.models import Investigation
 from paymentops_api.evolus.demo_cases import list_demo_cases
 from paymentops_api.services import investigation_service, repair_service
-from paymentops_api.services.case_payload import case_origin, synthetic_input_preview
+from paymentops_api.services.case_payload import (
+    case_origin,
+    load_record,
+    synthetic_input_preview,
+)
 
 router = APIRouter(tags=["investigations"])
 
@@ -273,7 +277,48 @@ def _detail(inv: Investigation) -> dict[str, object]:
         "agent_result": inv.agent_result,
         "answer_text": inv.answer_text,
         "supporting_record": inv.supporting_record,
+        "evidence_gaps": _evidence_gaps(inv),
         "repair": inv.repair,
         "synthetic_input": synthetic_input_preview(inv),
         "disclaimer": _DISCLAIMER,
+    }
+
+
+def _evidence_gaps(inv: Investigation) -> dict[str, object]:
+    """Server-side evidence-gap view.
+
+    Kept separate from the agent's structured list so an empty agent list is never displayed as
+    "no evidence missing". Computed at read time from persisted fields, so it is correct for
+    historical investigations too without rewriting any stored agent output.
+    """
+    record = load_record(inv)
+    raw_findings = (inv.deterministic_findings or {}).get("rule_findings")
+    findings: list[Any] = raw_findings if isinstance(raw_findings, list) else []
+    repair = inv.repair if isinstance(inv.repair, dict) else {}
+    proposal_obj = repair.get("proposal")
+    proposal: dict[str, Any] = proposal_obj if isinstance(proposal_obj, dict) else {}
+    sv_obj = proposal.get("server_validation")
+    server_validation: dict[str, Any] = sv_obj if isinstance(sv_obj, dict) else {}
+    allowed_obj = server_validation.get("allowed")
+    allowed: list[Any] = allowed_obj if isinstance(allowed_obj, list) else []
+    reported_obj = proposal.get("missing_evidence")
+    agent_reported: list[str] = (
+        [str(x) for x in reported_obj] if isinstance(reported_obj, list) else []
+    )
+    agent_present = bool(proposal.get("missing_evidence_present"))
+    record_gaps = list(record.gaps) if record is not None else []
+    server_derived = repair_service.derive_server_evidence_gaps(findings, record, allowed)
+    merged = repair_service.merge_evidence_gaps(
+        ("supporting_record", record_gaps),
+        ("server_derived", [g["gap"] for g in server_derived]),
+        ("agent", agent_reported),
+    )
+    return {
+        "supporting_record": record_gaps,
+        "server_derived": server_derived,
+        "agent_reported": agent_reported,
+        # "PROVIDED" (agent returned the array) vs "NOT_SUPPLIED" (key absent/omitted).
+        "agent_reported_status": "PROVIDED" if agent_present else "NOT_SUPPLIED",
+        "conflicts": list(record.contradictions) if record is not None else [],
+        "merged": merged,
     }

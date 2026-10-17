@@ -42,6 +42,7 @@ from rules_engine import RULESET_VERSION
 logger = get_logger("paymentops.repair")
 
 _TARGET_RE = re.compile(r"^(Dbtr|Cdtr|DbtrAgt|CdtrAgt)/PstlAdr/(TwnNm|Ctry)$")
+_ADDRESS_PARTY_RE = re.compile(r"^(Dbtr|Cdtr|DbtrAgt|CdtrAgt)/PstlAdr$")
 _SEVERITIES_BLOCKING = {"ERROR", "CRITICAL"}
 _FENCE_RE = re.compile(r"```(?:json)?\s*(\{.*?\})\s*```", re.DOTALL)
 
@@ -91,6 +92,9 @@ def build_proposal_contract() -> str:
         "- `evidence_ref` must be one of the refs in the supporting record.\n"
         "- If no evidence supports a missing field, omit it and list it under `missing_evidence`; "
         "do not propose a value for it.\n"
+        "- ALWAYS include the `missing_evidence` array in the JSON. List every finding target that "
+        "has no supporting-record evidence (so no value can be proposed). Use an empty array ONLY "
+        "when no target lacks evidence — an empty array is a positive claim, not a default.\n"
         "Definitions and cautions:\n"
         "- A field **absent from the payment XML but present in the supporting record is MISSING "
         "DATA, not a conflict**.\n"
@@ -206,6 +210,7 @@ def parse_repair_proposal(execution: WorkflowExecution) -> dict[str, Any]:
             "error": "No non-placeholder structured repair proposal was found in the agent output.",
             "changes": [],
             "missing_evidence": [],
+            "missing_evidence_present": False,
             "recommended_next_step": None,
             "raw_block": None,
         }
@@ -213,11 +218,14 @@ def parse_repair_proposal(execution: WorkflowExecution) -> dict[str, Any]:
     missing = obj.get("missing_evidence")
     next_step = obj.get("recommended_next_step")
     next_step_str = str(next_step) if next_step is not None else ""
+    # ``missing_evidence_present`` distinguishes "the agent supplied an (empty) array" from "the
+    # agent omitted the key". An absent list must never be read as "no evidence missing".
     return {
         "status": "PROPOSED",
         "error": None,
         "changes": _usable_changes(obj),
         "missing_evidence": [str(x) for x in missing] if isinstance(missing, list) else [],
+        "missing_evidence_present": isinstance(missing, list),
         "recommended_next_step": None if _is_placeholder(next_step_str) else next_step_str,
         "raw_block": raw_block,
     }
@@ -303,6 +311,72 @@ def validate_proposal(
                 {"target": target, "value": value, "evidence_ref": ref, "reason": reason}
             )
     return allowed, rejected
+
+
+def derive_server_evidence_gaps(
+    findings: list[dict[str, Any]] | None,
+    record: SupportingRecord | None,
+    allowed_changes: list[dict[str, Any]] | None,
+) -> list[dict[str, str]]:
+    """Server-derived evidence gaps.
+
+    A finding that requires an evidence-backed change, whose party has no matching entry in the
+    supporting record (and no validated change resolves it), is a *server-derived* gap. These are
+    computed here (never invented from the agent's narrative) and only for allowlisted address
+    repair targets.
+    """
+    if record is None:
+        return []
+    covered_parties = {e.party for e in record.entries}
+    resolved_parties = {
+        str(c.get("party"))
+        for c in (allowed_changes or [])
+        if isinstance(c, dict) and c.get("party")
+    }
+    gaps: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for finding in findings or []:
+        if not isinstance(finding, dict):
+            continue
+        target = str(finding.get("target") or "")
+        rule_id = str(finding.get("rule_id") or "")
+        match = _ADDRESS_PARTY_RE.fullmatch(target)
+        if not match:
+            continue
+        party = match.group(1)
+        if party in resolved_parties or party in covered_parties:
+            continue
+        key = (rule_id, party)
+        if key in seen:
+            continue
+        seen.add(key)
+        gaps.append(
+            {
+                "gap": (
+                    f"No supporting-record evidence for {party} postal address ({rule_id}); "
+                    "no evidence-backed value can be proposed."
+                ),
+                "provenance": "server-derived",
+                "rule_id": rule_id,
+                "party": party,
+            }
+        )
+    return gaps
+
+
+def merge_evidence_gaps(*sources: tuple[str, list[str]]) -> list[dict[str, Any]]:
+    """Deduplicate equivalent gap texts while keeping every source (provenance)."""
+    merged: dict[str, dict[str, Any]] = {}
+    for provenance, values in sources:
+        for value in values or []:
+            text = str(value).strip()
+            if not text:
+                continue
+            key = text.casefold()
+            entry = merged.setdefault(key, {"gap": text, "provenance": []})
+            if provenance not in entry["provenance"]:
+                entry["provenance"].append(provenance)
+    return list(merged.values())
 
 
 def _address_for_party(transaction: Any, party: str) -> Any:

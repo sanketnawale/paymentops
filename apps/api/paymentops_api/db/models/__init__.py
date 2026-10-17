@@ -17,6 +17,7 @@ class Base(DeclarativeBase):
 from paymentops_api.db.models import account as _account  # noqa: E402,F401
 from paymentops_api.db.models import analysis as _analysis  # noqa: E402,F401
 from paymentops_api.db.models import auth as _auth  # noqa: E402,F401
+from paymentops_api.db.models import batch as _batch  # noqa: E402,F401
 from paymentops_api.db.models import integration as _integration  # noqa: E402,F401
 from paymentops_api.db.models import investigation as _investigation  # noqa: E402,F401
 from paymentops_api.db.models import lifecycle as _lifecycle  # noqa: E402,F401
@@ -36,6 +37,7 @@ from paymentops_api.db.models.analysis import (  # noqa: E402
     RuleFinding,
 )
 from paymentops_api.db.models.auth import AppUser, UserSession  # noqa: E402
+from paymentops_api.db.models.batch import BatchItem, BatchRun  # noqa: E402
 from paymentops_api.db.models.integration import (  # noqa: E402
     ApiClient,
     BatchJob,
@@ -71,6 +73,8 @@ __all__ = [
     "AuditEvent",
     "Base",
     "BatchJob",
+    "BatchItem",
+    "BatchRun",
     "CaseAction",
     "IntegrationProfile",
     "IntegrationProfileVersion",

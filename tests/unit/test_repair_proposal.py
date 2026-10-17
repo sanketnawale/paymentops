@@ -307,3 +307,63 @@ def test_validate_proposal_rejects_placeholders():
     assert (
         allowed == [] and rejected and rejected[0]["reason"] == "placeholder value or evidence_ref"
     )
+
+
+# --------------------------------------------------------------------------- structured gaps
+
+
+def test_parse_proposal_captures_missing_evidence_and_presence():
+    """The agent's structured missing_evidence must be captured, and absence distinguished."""
+    with_missing = (
+        '```json\n{"proposed_changes":[{"target":"Dbtr/PstlAdr/TwnNm","value":"Milano",'
+        '"evidence_ref":"SR-1:debtor-town"}],"missing_evidence":["Cdtr/PstlAdr/TwnNm"],'
+        '"recommended_next_step":"review"}\n```'
+    )
+    execution = WorkflowExecution(
+        status="COMPLETED", raw_status="Completed", output_text=with_missing, result=None, raw={}
+    )
+    proposal = svc.parse_repair_proposal(execution)
+    assert proposal["missing_evidence"] == ["Cdtr/PstlAdr/TwnNm"]
+    assert proposal["missing_evidence_present"] is True
+
+    # _REAL_BLOCK omits the key entirely -> NOT provided (never read as "no evidence missing").
+    execution2 = WorkflowExecution(
+        status="COMPLETED", raw_status="Completed", output_text=_REAL_BLOCK, result=None, raw={}
+    )
+    proposal2 = svc.parse_repair_proposal(execution2)
+    assert proposal2["missing_evidence"] == []
+    assert proposal2["missing_evidence_present"] is False
+
+
+def test_derive_server_evidence_gaps_for_uncovered_party():
+    record = get_demo_case("pacs008-missing-town-incomplete").supporting_record
+    findings = [
+        {"rule_id": "ADR-001", "target": "Dbtr/PstlAdr"},
+        {"rule_id": "ADR-001", "target": "Cdtr/PstlAdr"},
+    ]
+    # Creditor has no entry and no allowed change -> server-derived gap; debtor is covered.
+    gaps = svc.derive_server_evidence_gaps(findings, record, allowed_changes=[])
+    assert [g["party"] for g in gaps] == ["Cdtr"]
+    assert gaps[0]["provenance"] == "server-derived"
+
+    # A validated creditor change resolves it -> no gap.
+    resolved = svc.derive_server_evidence_gaps(
+        findings, record, allowed_changes=[{"party": "Cdtr", "field": "TwnNm"}]
+    )
+    assert resolved == []
+
+
+def test_merge_evidence_gaps_dedupes_without_losing_provenance():
+    merged = svc.merge_evidence_gaps(
+        ("supporting_record", ["No creditor town is present."]),
+        ("server_derived", ["No creditor town is present."]),
+        ("agent", ["Cdtr/PstlAdr/TwnNm"]),
+    )
+    by_text = {m["gap"]: m for m in merged}
+    assert "No creditor town is present." in by_text
+    assert sorted(by_text["No creditor town is present."]["provenance"]) == [
+        "server_derived",
+        "supporting_record",
+    ]
+    assert len(merged) == 2
+

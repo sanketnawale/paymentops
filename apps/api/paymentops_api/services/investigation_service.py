@@ -244,6 +244,37 @@ async def start_investigation(
     return investigation
 
 
+def validate_uploaded_case(
+    xml_bytes: bytes, evidence_data: dict[str, Any] | None
+) -> tuple[str, SupportingRecord | None]:
+    """Validate one uploaded synthetic case WITHOUT persisting anything.
+
+    Enforces size limits, safe XML parsing (DTD/entities/network disabled), pacs.008.001.08 only,
+    single transaction, and an optional validated evidence record. Returns
+    ``(message_version_identifier, supporting_record_or_None)``. Raises
+    ``UploadValidationError`` (safe to surface) or ``ValueError`` (invalid evidence schema).
+    """
+    if len(xml_bytes) > UPLOAD_MAX_XML_BYTES:
+        raise UploadValidationError(f"XML exceeds the {UPLOAD_MAX_XML_BYTES}-byte limit")
+    if (
+        evidence_data is not None
+        and len(json.dumps(evidence_data).encode("utf-8")) > UPLOAD_MAX_EVIDENCE_BYTES
+    ):
+        raise UploadValidationError(f"Evidence exceeds the {UPLOAD_MAX_EVIDENCE_BYTES}-byte limit")
+
+    doc = secure_parse(xml_bytes, max_bytes=UPLOAD_MAX_XML_BYTES)  # XmlError on malformed/DTD
+    version = identify_pacs008(doc.root)  # UnsupportedMessageTypeError if not pacs.008.001.08
+    message = map_pacs008_to_canonical(doc.root, version)
+    if len(message.transactions) != 1:
+        raise UploadValidationError(
+            "Only single-transaction pacs.008 messages are supported for the repair journey."
+        )
+    record = None
+    if evidence_data is not None:
+        record = build_supporting_record(evidence_data)  # ValueError on invalid schema
+    return version.identifier, record
+
+
 async def start_uploaded_investigation(
     session: AsyncSession,
     org: str,
@@ -262,25 +293,7 @@ async def start_uploaded_investigation(
     only, single transaction, and an optional validated evidence record. Uploaded bytes are
     stored (base64) as immutable evidence and are never treated as a filesystem path.
     """
-    if len(xml_bytes) > UPLOAD_MAX_XML_BYTES:
-        raise UploadValidationError(f"XML exceeds the {UPLOAD_MAX_XML_BYTES}-byte limit")
-    if (
-        evidence_data is not None
-        and len(json.dumps(evidence_data).encode("utf-8")) > UPLOAD_MAX_EVIDENCE_BYTES
-    ):
-        raise UploadValidationError(f"Evidence exceeds the {UPLOAD_MAX_EVIDENCE_BYTES}-byte limit")
-
-    doc = secure_parse(xml_bytes, max_bytes=UPLOAD_MAX_XML_BYTES)  # XmlError on malformed/DTD
-    version = identify_pacs008(doc.root)  # UnsupportedMessageTypeError if not pacs.008.001.08
-    message = map_pacs008_to_canonical(doc.root, version)
-    if len(message.transactions) != 1:
-        raise UploadValidationError(
-            "Only single-transaction pacs.008 messages are supported for the repair journey."
-        )
-
-    record = None
-    if evidence_data is not None:
-        record = build_supporting_record(evidence_data)  # ValueError on invalid schema
+    version_identifier, record = validate_uploaded_case(xml_bytes, evidence_data)
 
     result = run_deterministic_validation(xml_bytes, pipeline=pipeline, registry=registry)
     input_sha256 = payload_sha256(xml_bytes)
@@ -297,7 +310,7 @@ async def start_uploaded_investigation(
         organization_id=org,
         demo_case_key="upload",
         source="upload",
-        message_version=version.identifier,
+        message_version=version_identifier,
         input_hash=input_sha256,
         payload_xml=base64.b64encode(xml_bytes).decode("ascii"),
         payload_evidence=evidence_data,
@@ -365,6 +378,22 @@ async def _start_evolus(
         evolus_workflow_runs_total.labels(status="started").inc()
     inv.updated_at = datetime.now(UTC)
     await session.commit()
+
+
+async def start_workflow_for_investigation(
+    session: AsyncSession,
+    inv: Investigation,
+    *,
+    settings: Settings,
+    client: EvolusClient,
+) -> Investigation:
+    """Start the Evolus workflow for an already-prepared investigation (exactly once).
+
+    Used by the durable batch runner: the investigation row is created (PREPARED) and committed
+    first, so a restart can recover the link without ever starting a second external run.
+    """
+    await _start_evolus(session, inv, settings=settings, client=client)
+    return inv
 
 
 async def get_investigation(
@@ -443,6 +472,19 @@ async def refresh_investigation(
         )
         inv.answer_text = answer or None
         agent_result = dict(inv.agent_result or {})
+        # The agent's structured ``missing_evidence`` lives in the fenced proposal block, not in
+        # the workflow's top-level result object. Source it from the parsed proposal so it is
+        # never silently dropped (an absent list is NOT "no evidence missing").
+        if proposal.get("status") == "PROPOSED":
+            agent_result["missing_evidence"] = list(proposal.get("missing_evidence") or [])
+            agent_result["missing_evidence_present"] = bool(
+                proposal.get("missing_evidence_present")
+            )
+            agent_result["missing_evidence_provenance"] = "agent-structured"
+        elif "missing_evidence" not in agent_result or not agent_result.get(
+            "missing_evidence_present"
+        ):
+            agent_result["missing_evidence_present"] = False
         mentions = sorted(_rule_ids_from_text(execution.output_text))
         agent_result["agent_rule_mentions"] = mentions
         agent_result["engine_rule_ids"] = sorted(engine_ids or [])

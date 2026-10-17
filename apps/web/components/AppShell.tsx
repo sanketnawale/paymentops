@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import {
   Activity,
+  Boxes,
   Brain,
   ClipboardCheck,
   Database,
@@ -27,6 +28,7 @@ const NAV_GROUPS: { label: string; items: { href: string; label: string; icon: t
     items: [
       { href: '/dashboard', label: 'Overview', icon: LayoutDashboard },
       { href: '/investigations', label: 'Investigations', icon: Brain },
+      { href: '/batches/exceptions', label: 'Batch Exception Desk', icon: Boxes },
     ],
   },
   {

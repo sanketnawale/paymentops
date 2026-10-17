@@ -28,17 +28,22 @@ import {
   listExceptionBatches,
   testExceptionItemRepair,
   type ExceptionBatchDetail,
-  type ExceptionBatchItem,
   type ExceptionBatchItemInput,
   type ExceptionBatchSummary,
 } from '@/lib/api';
 import { badgeClass, formatDateTime, labelize } from '@/lib/status';
+import {
+  ACTIVE_BATCH_STATUSES as ACTIVE,
+  canTest,
+  isClean,
+  isEvaluated,
+  itemOutcomeLabel,
+} from '@/lib/batchStatus';
 
 const MAX_ITEMS = 5;
 const MAX_XML_BYTES = 262_144;
 const MAX_EVIDENCE_BYTES = 65_536;
 const POLL_MS = 3500;
-const ACTIVE = new Set(['PENDING', 'STARTING', 'RUNNING']);
 
 interface Row {
   xml: string;
@@ -64,34 +69,6 @@ function readFile(
   reader.onload = () => onText(String(reader.result ?? ''), file.name);
   reader.onerror = () => onError('The file could not be read.');
   reader.readAsText(file);
-}
-
-function isClean(item: ExceptionBatchItem): boolean {
-  return (
-    item.status === 'COMPLETED' &&
-    item.investigation_status === 'COMPLETED' &&
-    (item.original_findings ?? []).length === 0
-  );
-}
-
-function canTest(item: ExceptionBatchItem): boolean {
-  return (
-    item.investigation_status === 'COMPLETED' &&
-    (item.proposed_changes ?? []).length > 0 &&
-    (item.sandbox?.applied_changes ?? []).length === 0
-  );
-}
-
-function itemOutcomeLabel(item: ExceptionBatchItem): { text: string; tone: string } {
-  if (item.status === 'REJECTED') return { text: 'Rejected at upload', tone: 'REJECTED' };
-  if (item.status === 'FAILED') return { text: 'Failed', tone: 'FAILED' };
-  if (isClean(item)) return { text: 'No repair needed', tone: 'COMPLETED' };
-  if (item.sandbox?.review_status)
-    return { text: `Sandbox: ${labelize(item.sandbox.review_status)}`, tone: item.sandbox.review_status };
-  if ((item.unresolved_findings ?? []).length > 0)
-    return { text: 'Incomplete evidence — unresolved', tone: 'REVIEW_REQUIRED' };
-  if (ACTIVE.has(item.status)) return { text: 'In progress', tone: item.status };
-  return { text: labelize(item.status), tone: item.status };
 }
 
 export default function BatchExceptionDeskPage() {
@@ -339,6 +316,7 @@ export default function BatchExceptionDeskPage() {
 
                 {detail.items.map((item) => {
                   const outcome = itemOutcomeLabel(item);
+                  const evaluated = isEvaluated(item);
                   return (
                     <div key={item.item_id} className="stack" style={{ borderTop: '1px solid var(--cn-border)', marginTop: '0.75rem', paddingTop: '0.75rem' }}>
                       <div className="row-between">
@@ -358,10 +336,38 @@ export default function BatchExceptionDeskPage() {
                             ) : ('—')}
                           </span>
                         </li>
-                        <li><span className="label">Original findings</span><span>{(item.original_findings ?? []).length} · {(item.original_findings ?? []).map((f) => f.rule_id).join(', ') || 'none'}</span></li>
-                        <li><span className="label">Proposed (server-validated)</span><span>{(item.proposed_changes ?? []).map((c) => `${c.target}=${c.value}`).join(', ') || 'none'}</span></li>
-                        <li><span className="label">Sandbox test</span><span>{(item.sandbox?.applied_changes ?? []).map((c) => `${c.target}=${c.value}`).join(', ') || 'not tested'}</span></li>
-                        <li><span className="label">Remaining findings</span><span>{(item.remaining_findings ?? []).length} · {(item.remaining_findings ?? []).map((f) => f.rule_id).join(', ') || (item.sandbox ? 'none' : 'n/a')}</span></li>
+                        <li>
+                          <span className="label">Validation / findings</span>
+                          {evaluated ? (
+                            <span>{(item.original_findings ?? []).length} · {(item.original_findings ?? []).map((f) => f.rule_id).join(', ') || 'none'}</span>
+                          ) : (
+                            <span className="muted">Not evaluated</span>
+                          )}
+                        </li>
+                        <li>
+                          <span className="label">Proposed (server-validated)</span>
+                          {evaluated ? (
+                            <span>{(item.proposed_changes ?? []).map((c) => `${c.target}=${c.value}`).join(', ') || 'none'}</span>
+                          ) : (
+                            <span className="muted">Not evaluated</span>
+                          )}
+                        </li>
+                        <li>
+                          <span className="label">Sandbox test</span>
+                          {evaluated ? (
+                            <span>{(item.sandbox?.applied_changes ?? []).map((c) => `${c.target}=${c.value}`).join(', ') || 'Not tested'}</span>
+                          ) : (
+                            <span className="muted">Not evaluated</span>
+                          )}
+                        </li>
+                        <li>
+                          <span className="label">Remaining findings</span>
+                          {evaluated ? (
+                            <span>{(item.remaining_findings ?? []).length} · {(item.remaining_findings ?? []).map((f) => f.rule_id).join(', ') || (item.sandbox ? 'none' : 'n/a')}</span>
+                          ) : (
+                            <span className="muted">Not evaluated</span>
+                          )}
+                        </li>
                       </ul>
 
                       {(item.unresolved_findings ?? []).length > 0 ? (

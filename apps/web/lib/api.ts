@@ -1050,6 +1050,8 @@ export interface ExceptionBatchItem {
   investigation_id?: string | null;
   evolus_execution_id?: string | null;
   investigation_status?: string | null;
+  validation_performed?: boolean;
+  sandbox_review_status?: string | null;
   evidence_refs?: string[];
   original_findings?: InvestigationFinding[];
   repair_status?: string | null;

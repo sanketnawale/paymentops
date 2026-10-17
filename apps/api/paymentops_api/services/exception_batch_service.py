@@ -259,8 +259,25 @@ def _as_list(value: Any) -> list[Any]:
     return value if isinstance(value, list) else []
 
 
+def evaluation_state(inv: Investigation | None) -> tuple[bool, str | None]:
+    """(validation_performed, sandbox_review_status) from recorded execution evidence.
+
+    ``validation_performed`` is true only when a linked investigation recorded deterministic
+    engine output (the validation actually ran). It is never inferred from workflow completion
+    or from an empty findings list. ``sandbox_review_status`` is the persisted sandbox review
+    status, or ``None`` when the item was never sandbox-tested.
+    """
+    if inv is None:
+        return False, None
+    validation_performed = bool(_as_dict(inv.deterministic_findings))
+    sandbox = _as_dict(_as_dict(inv.repair).get("test"))
+    raw_status = sandbox.get("review_status") if sandbox else None
+    return validation_performed, (str(raw_status) if raw_status else None)
+
+
 def item_public(item: BatchItem, inv: Investigation | None) -> dict[str, Any]:
     """Item view: batch progress + linked investigation state (no payload bytes, no secrets)."""
+    validation_performed, sandbox_review_status = evaluation_state(inv)
     detail: dict[str, Any] = {
         "item_id": item.item_id,
         "item_index": item.item_index,
@@ -272,6 +289,8 @@ def item_public(item: BatchItem, inv: Investigation | None) -> dict[str, Any]:
         "investigation_id": item.investigation_id,
         "evolus_execution_id": item.evolus_execution_id,
         "investigation_status": inv.status if inv is not None else None,
+        "validation_performed": validation_performed,
+        "sandbox_review_status": sandbox_review_status,
         "created_at": item.created_at.isoformat() if item.created_at else None,
         "updated_at": item.updated_at.isoformat() if item.updated_at else None,
     }
@@ -337,6 +356,7 @@ async def build_export(
             if inv is not None
             else []
         )
+        validation_performed, sandbox_review_status = evaluation_state(inv)
         exported_items.append(
             {
                 "item_id": item.item_id,
@@ -348,6 +368,9 @@ async def build_export(
                 "evidence_hash": item.evidence_hash,
                 "investigation_id": item.investigation_id,
                 "evolus_execution_id": item.evolus_execution_id,
+                # Explicit evaluation semantics (additive; existing fields preserved).
+                "validation_performed": validation_performed,
+                "sandbox_review_status": sandbox_review_status,
                 "evidence_refs": [e.get("ref") for e in _as_list(record.get("entries"))],
                 "supporting_record_gaps": _as_list(record.get("gaps")),
                 "original_findings": findings,

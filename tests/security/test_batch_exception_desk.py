@@ -38,6 +38,9 @@ _VALID = (_REPO / "tests" / "fixtures" / "pacs008" / "valid_structured.xml").rea
 _EVIDENCE_INCOMPLETE = json.loads(
     (_REPO / "examples" / "uploads" / "incomplete" / "evidence.json").read_text(encoding="utf-8")
 )
+_EVIDENCE_COMPLETE = json.loads(
+    (_REPO / "examples" / "uploads" / "complete" / "evidence.json").read_text(encoding="utf-8")
+)
 
 
 def _pipeline() -> AnalysisPipeline:
@@ -267,4 +270,61 @@ async def test_export_distinguishes_proposed_from_tested():
         blob = json.dumps(report)
         assert "api_key" not in blob.lower()
         assert "reasoning" not in blob.lower()
+    await engine.dispose()
+
+
+async def test_export_validation_and_sandbox_semantics():
+    """Export must state validation_performed and sandbox_review_status explicitly.
+
+    Rejected uploads are never inferred as evaluated; a clean, evaluated original can have
+    validation_performed=true while sandbox_tested=false.
+    """
+    engine = create_async_engine(os.environ["TEST_DATABASE_URL"])
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with factory() as session:
+        org = await _org(session, "batch-semantics")
+        items = [
+            {"xml": _MISSING_TOWN, "evidence": _EVIDENCE_COMPLETE, "filename": "complete.xml"},
+            {"xml": _VALID, "evidence": None, "filename": "clean.xml"},
+            {"xml": "<not-xml", "evidence": None, "filename": "bad.xml"},
+        ]
+        batch, rows, _ = await batch_service.create_batch(session, org.id, items)
+        client = FakeEvolus()
+        kwargs = {
+            "settings": _settings(),
+            "pipeline": _pipeline(),
+            "registry": build_default_registry(),
+            "evolus_client": client,
+        }
+        for _ in range(8):
+            await batch_runner.process_once(session, **kwargs)
+            await session.refresh(batch)
+            if batch.status in {"COMPLETED", "PARTIAL", "FAILED"}:
+                break
+
+        # Persist a sandbox test on the first (complete-evidence) item.
+        invs = await batch_service.load_investigations(session, rows)
+        inv0 = invs[rows[0].investigation_id or ""]
+        inv0.repair = {"status": "VALIDATED", "test": {"review_status": "VALIDATED"}}
+        session.add(inv0)
+        await session.commit()
+
+        export = await batch_service.build_export(session, org.id, batch.batch_id)
+        by_index = {i["item_index"]: i for i in export["items"]}
+
+        complete = by_index[0]
+        assert complete["validation_performed"] is True
+        assert complete["sandbox_review_status"] == "VALIDATED"
+        assert complete["sandbox_tested"] is True
+
+        clean = by_index[1]
+        assert clean["validation_performed"] is True
+        assert clean["sandbox_review_status"] is None
+        assert clean["sandbox_tested"] is False
+
+        malformed = by_index[2]
+        assert malformed["status"] == "REJECTED"
+        assert malformed["validation_performed"] is False
+        assert malformed["sandbox_review_status"] is None
+        assert malformed["sandbox_tested"] is False
     await engine.dispose()

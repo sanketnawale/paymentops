@@ -18,6 +18,7 @@ import {
 } from '@/components/ui';
 import { getInvestigation, testRepair, type InvestigationDetail } from '@/lib/api';
 import { badgeClass, formatDateTime, labelize } from '@/lib/status';
+import { canTestSandbox, isNoRepairNeeded } from '@/lib/repairView';
 
 const TERMINAL = new Set(['COMPLETED', 'FAILED', 'PREPARED']);
 const MAX_POLLS = 40;
@@ -96,6 +97,12 @@ export default function InvestigationDetailPage() {
   const nextStep = [agent?.recommended_next_step, proposal?.recommended_next_step].find(
     (s) => typeof s === 'string' && !looksPlaceholder(s),
   ) ?? null;
+  // A clean message: the engine raised no findings and the investigator proposed no changes.
+  const noRepairNeeded = isNoRepairNeeded({
+    status: detail?.status,
+    findingsCount: findings.length,
+    proposedCount: proposedChanges.length,
+  });
 
   return (
     <AppShell>
@@ -301,11 +308,20 @@ export default function InvestigationDetailPage() {
               <CardHead
                 title="Sandbox repair"
                 sub="Proposed changes are tested on a copy of the input; the original is never modified"
-                actions={<span className={badgeClass(repair?.status ?? 'NONE')}>{labelize(repair?.status ?? 'NONE')}</span>}
+                actions={
+                  <span className={badgeClass(noRepairNeeded ? 'NO_CHANGES' : repair?.status ?? 'NONE')}>
+                    {labelize(noRepairNeeded ? 'NO_CHANGES' : repair?.status ?? 'NONE')}
+                  </span>
+                }
               />
               <div className="card-body">
                 {proposal?.status === 'PROPOSAL_UNPARSEABLE' ? (
                   <Notice tone="warn"><span>No structured proposal could be parsed from the agent output: {proposal.error}</span></Notice>
+                ) : null}
+                {noRepairNeeded ? (
+                  <Notice tone="accent">
+                    <span><strong>No repair needed.</strong> The deterministic engine raised no findings and the investigator proposed no changes for this message.</span>
+                  </Notice>
                 ) : null}
 
                 <p className="field-label" style={{ marginTop: 0 }}>Proposed changes (server-validated)</p>
@@ -338,9 +354,14 @@ export default function InvestigationDetailPage() {
                     </ul>
                   </>
                 ) : null}
-                <Button onClick={runRepairTest} disabled={repairBusy || !proposal || proposal.status !== 'PROPOSED'} style={{ marginTop: '0.75rem' }}>
+                <Button onClick={runRepairTest} disabled={repairBusy || !canTestSandbox(proposal?.status, proposedChanges.length)} style={{ marginTop: '0.75rem' }}>
                   <FlaskConical size={14} /> {repairBusy ? 'Testing…' : 'Test proposed repair'}
                 </Button>
+                {proposedChanges.length === 0 ? (
+                  <span className="muted small" style={{ marginLeft: '0.5rem' }}>
+                    {noRepairNeeded ? 'No repair needed.' : 'No supported change to test.'}
+                  </span>
+                ) : null}
                 {repairError ? <p className="small" style={{ color: 'var(--cn-danger)' }} role="alert">{repairError}</p> : null}
 
                 {sandbox ? (

@@ -366,3 +366,87 @@ def test_merge_evidence_gaps_dedupes_without_losing_provenance():
         "supporting_record",
     ]
     assert len(merged) == 2
+
+
+# --------------------------------------------------------------------------- empty/clean proposals
+
+
+def _completed(text: str) -> WorkflowExecution:
+    return WorkflowExecution(
+        status="COMPLETED", raw_status="Completed", output_text=text, result=None, raw={}
+    )
+
+
+def test_parse_proposal_accepts_explicit_empty_changes():
+    """A clean case returns a valid JSON proposal with an empty proposed_changes array."""
+    text = (
+        "No findings were raised.\n"
+        "```json\n"
+        '{"proposed_changes": [], "missing_evidence": [], '
+        '"recommended_next_step": "Nothing to repair; no sandbox test required."}\n'
+        "```\n"
+    )
+    proposal = svc.parse_repair_proposal(_completed(text))
+    assert proposal["status"] == "PROPOSED"
+    assert proposal["changes"] == []
+    assert proposal["missing_evidence"] == []
+    assert proposal["missing_evidence_present"] is True
+    assert proposal["recommended_next_step"] == "Nothing to repair; no sandbox test required."
+
+
+def test_parse_proposal_empty_changes_preserves_missing_evidence_and_next_step():
+    text = (
+        "```json\n"
+        '{"proposed_changes": [], "missing_evidence": ["Cdtr/PstlAdr/TwnNm"], '
+        '"recommended_next_step": "Human review for the missing creditor town."}\n'
+        "```\n"
+    )
+    proposal = svc.parse_repair_proposal(_completed(text))
+    assert proposal["status"] == "PROPOSED"
+    assert proposal["changes"] == []
+    assert proposal["missing_evidence"] == ["Cdtr/PstlAdr/TwnNm"]
+    assert proposal["recommended_next_step"] == "Human review for the missing creditor town."
+
+
+def test_parse_proposal_prefers_empty_block_over_echoed_placeholder_block():
+    text = (
+        f"{_PLACEHOLDER_BLOCK}\n\n"
+        '```json\n{"proposed_changes": [], "missing_evidence": [], '
+        '"recommended_next_step": "clean"}\n```\n'
+    )
+    proposal = svc.parse_repair_proposal(_completed(text))
+    assert proposal["status"] == "PROPOSED"
+    assert proposal["changes"] == []
+    assert proposal["recommended_next_step"] == "clean"
+
+
+def test_parse_proposal_missing_proposed_changes_key_is_unparseable():
+    # A JSON object without proposed_changes is not valid structured output.
+    proposal = svc.parse_repair_proposal(
+        _completed('```json\n{"missing_evidence": [], "recommended_next_step": "x"}\n```')
+    )
+    assert proposal["status"] == "PROPOSAL_UNPARSEABLE"
+    assert proposal["changes"] == []
+
+
+def test_parse_proposal_malformed_json_is_unparseable():
+    proposal = svc.parse_repair_proposal(
+        _completed('Reasoning.\n```json\n{"proposed_changes": [ }\n```\n')
+    )
+    assert proposal["status"] == "PROPOSAL_UNPARSEABLE"
+
+
+def test_derive_repair_status_distinguishes_clean_from_unresolved():
+    # Clean: nothing proposed, no findings.
+    assert svc.derive_repair_status("PROPOSED", 0, has_findings=False) == "NO_CHANGES"
+    # Unresolved: nothing proposed, but findings remain for review.
+    assert svc.derive_repair_status("PROPOSED", 0, has_findings=True) == "REVIEW_REQUIRED"
+    # A real proposal stays PROPOSED regardless of findings.
+    assert svc.derive_repair_status("PROPOSED", 2, has_findings=True) == "PROPOSED"
+    # A non-proposal never becomes a repair state.
+    assert svc.derive_repair_status("PROPOSAL_UNPARSEABLE", 0, has_findings=False) == (
+        "PROPOSAL_UNPARSEABLE"
+    )
+    assert svc.derive_repair_status("PROPOSAL_UNPARSEABLE", 0, has_findings=True) == (
+        "PROPOSAL_UNPARSEABLE"
+    )

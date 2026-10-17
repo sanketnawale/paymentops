@@ -188,6 +188,20 @@ def _usable_changes(obj: dict[str, Any]) -> list[dict[str, str]]:
     return out
 
 
+def _is_proposal_candidate(obj: dict[str, Any]) -> bool:
+    """True when ``obj`` is a valid structured proposal worth keeping.
+
+    An **explicitly empty** ``proposed_changes`` array is valid structured output (a clean case
+    that needs no repair). A non-empty array is valid only when it carries at least one usable,
+    non-placeholder change - this rejects the prompt contract echoed back by the model. A missing
+    ``proposed_changes`` key or a malformed structure is never treated as valid.
+    """
+    raw = obj.get("proposed_changes")
+    if not isinstance(raw, list):
+        return False
+    return len(raw) == 0 or bool(_usable_changes(obj))
+
+
 def parse_repair_proposal(execution: WorkflowExecution) -> dict[str, Any]:
     """Parse the agent's structured repair proposal. Never raises; always returns a dict.
 
@@ -198,16 +212,16 @@ def parse_repair_proposal(execution: WorkflowExecution) -> dict[str, Any]:
     text = execution.output_text or ""
     best: tuple[dict[str, Any], str | None] | None = None
     for obj, raw in _iter_fenced_json(text):
-        if _usable_changes(obj):
+        if _is_proposal_candidate(obj):
             best = (obj, raw)  # prefer the last valid block (agent's final proposal)
     if best is None:
         fallback = _find_json_with_key(text, "proposed_changes")
-        if fallback is not None and _usable_changes(fallback):
+        if fallback is not None and _is_proposal_candidate(fallback):
             best = (fallback, None)
     if best is None:
         return {
             "status": "PROPOSAL_UNPARSEABLE",
-            "error": "No non-placeholder structured repair proposal was found in the agent output.",
+            "error": "No valid structured repair proposal was found in the agent output.",
             "changes": [],
             "missing_evidence": [],
             "missing_evidence_present": False,
@@ -229,6 +243,19 @@ def parse_repair_proposal(execution: WorkflowExecution) -> dict[str, Any]:
         "recommended_next_step": None if _is_placeholder(next_step_str) else next_step_str,
         "raw_block": raw_block,
     }
+
+
+def derive_repair_status(proposal_status: str, usable_changes: int, *, has_findings: bool) -> str:
+    """Top-level repair status from the parsed proposal and the engine findings.
+
+    Keeps a clean message (no findings, nothing proposed) distinguishable from a message that has
+    unresolved findings but no evidence-backed change to propose.
+    """
+    if proposal_status != "PROPOSED":
+        return proposal_status
+    if usable_changes > 0:
+        return "PROPOSED"
+    return "REVIEW_REQUIRED" if has_findings else "NO_CHANGES"
 
 
 def parse_final_answer(

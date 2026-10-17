@@ -501,7 +501,13 @@ async def refresh_investigation(
                 "allowed": allowed,
                 "rejected": rejected_preview,
             }
-        inv.repair = {"status": proposal.get("status"), "proposal": proposal}
+        has_findings = isinstance(raw_findings, list) and len(raw_findings) > 0
+        repair_status = repair_service.derive_repair_status(
+            str(proposal.get("status") or "PROPOSAL_UNPARSEABLE"),
+            len(proposal.get("changes") or []),
+            has_findings=has_findings,
+        )
+        inv.repair = {"status": repair_status, "proposal": proposal}
         inv.error = None
     elif execution.status == "FAILED":
         inv.error = execution.error_text or "The Evolus investigation run reported failure."

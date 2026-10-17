@@ -366,4 +366,3 @@ def test_merge_evidence_gaps_dedupes_without_losing_provenance():
         "supporting_record",
     ]
     assert len(merged) == 2
-

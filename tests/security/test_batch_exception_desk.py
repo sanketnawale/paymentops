@@ -14,9 +14,9 @@ import pytest
 from paymentops_api.db.models import Organization
 from paymentops_api.evolus.client import WorkflowExecution, WorkflowRun
 from paymentops_api.routers import investigations as investigations_router
-from paymentops_api.services import batch_runner, exception_batch_service as batch_service
+from paymentops_api.services import batch_runner
+from paymentops_api.services import exception_batch_service as batch_service
 from paymentops_api.settings import Settings
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from address_engine.providers import CloudNovaAddressProvider
@@ -158,12 +158,12 @@ async def test_runner_starts_once_then_completes_sequentially():
             session, org.id, [{"xml": _MISSING_TOWN, "evidence": None}]
         )
         client = FakeEvolus()
-        kwargs = dict(
-            settings=_settings(),
-            pipeline=_pipeline(),
-            registry=build_default_registry(),
-            evolus_client=client,
-        )
+        kwargs = {
+            "settings": _settings(),
+            "pipeline": _pipeline(),
+            "registry": build_default_registry(),
+            "evolus_client": client,
+        }
         assert await batch_runner.process_once(session, **kwargs) is True  # start
         await session.refresh(rows[0])
         assert client.start_calls == 1

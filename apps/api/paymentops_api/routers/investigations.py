@@ -305,7 +305,9 @@ def _evidence_gaps(inv: Investigation) -> dict[str, object]:
     agent_reported: list[str] = (
         [str(x) for x in reported_obj] if isinstance(reported_obj, list) else []
     )
-    agent_present = bool(proposal.get("missing_evidence_present"))
+    # A list with items was clearly supplied; the stored flag (newer records) is authoritative
+    # for the empty-array case. Absent + empty => NOT_SUPPLIED ("no structured gaps supplied").
+    agent_present = bool(proposal.get("missing_evidence_present")) or bool(agent_reported)
     record_gaps = list(record.gaps) if record is not None else []
     server_derived = repair_service.derive_server_evidence_gaps(findings, record, allowed)
     merged = repair_service.merge_evidence_gaps(

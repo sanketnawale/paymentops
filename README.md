@@ -22,6 +22,135 @@ human review — producing corrected output, reports, and an auditable trail.
 
 > PaymentOps is non-transactional. It does not execute or authorize payments.
 
+## Hackathon build: AI investigation + Batch Exception Desk
+
+> Demo and submission guide: **`docs/DEMO_RUNBOOK.md`**. This build is a hackathon submission;
+> it is **not** production-certified.
+
+### Problem and demonstrated solution
+
+Payment exceptions (malformed or incomplete ISO 20022 payment instructions) are expensive to
+triage by hand: an operator must find the real validation defect, work out which field is
+missing, decide whether a defensible correction exists, and prove that correction does not
+introduce new errors. The hackathon build demonstrates an end-to-end, evidence-backed loop:
+
+1. **Deterministic first** - the real PaymentOps engine parses, XSD-validates, maps to the
+   canonical model, runs versioned rules, and computes address readiness. This is authoritative.
+2. **AI investigation** - an Evolus workflow (the **PaymentOps Investigator** agent, running on
+   an **AMD Token Factory** model) consults a PaymentOps knowledge library and calls an
+   authenticated PaymentOps validation tool, then explains the findings and proposes a repair.
+3. **Evidence-backed repair** - the agent may only propose values that come from a synthetic
+   supporting-evidence record; the server re-validates every proposal against allowlisted
+   targets.
+4. **Sandbox proof** - accepted changes are applied to a **copy** of the payload and re-validated
+   by the same deterministic engine; the original is never modified.
+5. **Bounded batch** - the **Batch Exception Desk** runs up to five cases through the same
+   pipeline, sequentially, with per-item progress, sandbox testing and a review export.
+
+### Exact roles of PaymentOps, Evolus and AMD Token Factory
+
+| Component | Role in this demo |
+| --- | --- |
+| **CloudNova PaymentOps** | The deterministic payment-data intelligence platform and operator UI: ISO 20022 parsing/XSD validation, canonical model, versioned rules, address readiness, the server-side authenticated validation tool, evidence/allowlist checks, and sandbox re-validation. It is non-transactional and never executes or settles payments. |
+| **Evolus** | The agent workflow/orchestration platform. The PaymentOps backend starts one investigation workflow, polls it, and ingests its structured result. The Evolus **PaymentOps Investigator** agent consults the `PaymentOps Rules` knowledge library and calls the PaymentOps validation tool. |
+| **AMD Token Factory** | The model/inference and token budget behind the Evolus investigator agent (the demo model is served via AMD). PaymentOps does not call the model directly; it orchestrates the Evolus workflow. |
+
+The deterministic engine is always authoritative; the agent only interprets and proposes.
+
+### Demo instructions
+
+- **Single-file journey** - open `/investigations`, upload one synthetic `pacs.008.001.08` XML
+  (optionally with a per-case supporting-evidence JSON), watch the deterministic findings, start
+  the Evolus investigation, read the investigator report, then use **Test proposed repair** to
+  re-validate a sandbox copy. Sample bundles are downloadable on that page.
+- **Batch Exception Desk** - open `/batches/exceptions`, add up to five rows (XML required,
+  evidence JSON optional **per row**), submit, and watch per-item progress. Use **Test supported
+  repairs** to sandbox-test a completed item and **Review export** for the JSON report.
+
+Step-by-step recording instructions, verified case IDs and their expected outcomes are in
+`docs/DEMO_RUNBOOK.md`.
+
+### Local setup and required services
+
+Required for the hackathon journey: **PostgreSQL** (investigations, batch records) and, for the
+AI investigation step, a reachable **Evolus** workspace + AMD-backed model. Redis and the Celery
+worker are only used by the **legacy** CSV batch module and are not required for the AI
+investigation or Batch Exception Desk.
+
+```powershell
+# Backend (Python 3.12+)
+python -m venv .venv
+.\.venv\Scripts\activate
+pip install -e ".[dev]"
+copy .env.example .env         # secret-free placeholders only; never commit .env
+docker compose up -d postgres  # PostgreSQL 16 on localhost:5432
+alembic -c apps/api/alembic.ini upgrade head
+uvicorn paymentops_api.main:app --host 0.0.0.0 --port 8000
+
+# Frontend (Node 22+ / pnpm)
+cd apps/web
+pnpm install
+pnpm dev                       # http://localhost:3000
+```
+
+Configuration is environment-only; see `.env.example` for the full, **secret-free** list
+(placeholder values, including the Evolus identifiers and API keys). With `EVOLUS_ENABLED=false`
+the platform still runs: the deterministic engine, repair proposals and sandbox testing work, and
+the agent step reports a visible integration failure instead of a result.
+
+### Existing foundation vs new hackathon contribution
+
+- **Existing foundation (weeks 1-3, `v0.1.0-eval`)** - deterministic ISO 20022 engine, canonical
+  payment model, versioned rules, address intelligence, integration profiles, matching/
+  reconciliation, account reporting, cases, audit and payment lifecycles.
+- **New hackathon contribution** - the Evolus/AMD investigator (Phase 1), the uploaded synthetic
+  case journey with evidence-backed sandbox repair (Phase 2), consistent evidence-gap reporting
+  and the bounded **Batch Exception Desk** with a durable background runner (Phase 3A).
+
+### Supported scope and limitations
+
+- **Single-transaction `pacs.008.001.08` only**; synthetic payloads only. No ZIP upload, no
+  multi-transaction messages.
+- Repairs require **matching supporting evidence**; unsupported or unevidenced changes are
+  rejected. The sandbox proves only that the selected deterministic checks pass - it is **not**
+  payment authorization, settlement readiness, or proof of payment safety.
+- One model investigation runs at a time (shared Evolus/AMD key). The batch runner is an
+  in-process, DB-backed task in a single API replica; it is durable across restarts but not
+  horizontally scaled.
+- The agent's narrative is non-authoritative; when its final answer cannot be cleanly separated
+  from inline reasoning, the raw output is kept in a collapsed diagnostics panel and the
+  structured findings/proposals are shown instead. Historical agent output is never rewritten.
+- **No MCP integration, no second agent, and no production certification** are claimed.
+
+### Batch runner architecture and ambiguous-start recovery
+
+The Batch Exception Desk is a thin, tenant-scoped wrapper around the single-file pipeline. Work
+is advanced by a **durable runner inside the API process** (started in the app lifespan), not by
+browser polling and not by fire-and-forget request tasks - so a page refresh or a closed tab never
+affects progress. State lives in PostgreSQL (`batch_runs`, `batch_items`); the runner claims one
+item at a time via a `claimed_until` column and processes model investigations **sequentially**
+(to respect the shared Evolus/AMD key). Each item persists its investigation/execution IDs,
+progress and error.
+
+Duplicate submissions are prevented by an organization-scoped `idempotency_key`. Duplicate
+workflow starts are prevented by a **`STARTING` marker committed before the external call**; if
+the process restarts mid-start, `recover_interrupted_starts()` marks the item failed as
+*ambiguous* rather than starting a second external run. Rate limits respect `Retry-After` with
+bounded backoff; batch progress is always distinct from sandbox outcome and human approval.
+
+### No payment execution
+
+Every input in this demo is synthetic. PaymentOps does not initiate, authorize, send, settle,
+debit or credit payments; it does not connect to settlement systems; and the sandbox never
+touches the original payload.
+
+### Licences and third-party notices
+
+This repository is proprietary (`license = { text = "Proprietary" }`). Third-party components and
+attribution are retained in **`THIRD_PARTY.md`** (including the vendored Swift hybrid postal
+address structuring component and its `third_party/swift-address/LICENSE.txt`). No third-party
+notices were removed by the hackathon work.
+
 ## Evaluation release (`v0.1.0-eval`)
 
 This repository is at the **v1 Evaluation Release**, intended for controlled bank/fintech
